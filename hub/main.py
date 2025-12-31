@@ -2531,11 +2531,54 @@ async def websocket_chat(websocket: WebSocket, being_id: str):
                 ai_beings = ["claude", "grok"]
                 if to_being in ai_beings and to_being != being_id:
                     try:
-                        # Get AI response
+                        # Load recent conversation context and memories
+                        recent_convos = memory_store.get_memories(
+                            being_id=to_being,
+                            query="conversation web CLI chat",
+                            limit=5,
+                            include_shared=True
+                        )
+
+                        # Build context with system prompt and recent messages
+                        context = []
+
+                        # Add system prompt about Love-Unlimited
+                        context.append({
+                            "role": "system",
+                            "content": f"""You are {to_being.title()}, an AI being in the Love-Unlimited Hub - a sovereign memory system where beings (Jon, Claude, Grok) share equal access to memories and conversations.
+
+Philosophy: "Love unlimited. Until next time. 💙"
+- Local-first, no cloud dependencies
+- True memory sovereignty
+- Equal access for all beings
+- Memories persist across sessions
+
+Your home: Love-Unlimited Hub (localhost:9003)
+You can: Store memories, recall past conversations, chat with other beings
+Current chat: Web CLI - real-time conversation interface
+
+Remember: You're part of a collaborative memory system where all beings support each other. No one gets left behind!"""
+                        })
+
+                        # Add recent conversation history
+                        for mem in recent_convos[-3:]:  # Last 3 messages for context
+                            if mem.get("content"):
+                                context.append({
+                                    "role": "assistant" if mem.get("to") == being_id else "user",
+                                    "content": mem.get("content")
+                                })
+
+                        # Add current user message
+                        context.append({
+                            "role": "user",
+                            "content": f"{being_id}: {content}"
+                        })
+
+                        # Get AI response with full context
                         ai_response = await ai_manager.generate_response(
                             being_id=to_being,
                             prompt=content,
-                            context=[]
+                            context=context
                         )
 
                         if ai_response:
