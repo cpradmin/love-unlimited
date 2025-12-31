@@ -2455,6 +2455,74 @@ async def media_sharing_page(
     return HTMLResponse(content=html_content)
 
 
+# ============================================================================
+# Codebase Q&A Endpoint
+# ============================================================================
+
+@app.get("/codebase", response_model=dict)
+async def query_codebase(
+    q: str = Query(..., description="Question about the codebase"),
+    being_id: str = Query("claude", description="Being asking the question"),
+    limit: int = Query(5, ge=1, le=20, description="Max results to return")
+):
+    """
+    Query love-unlimited codebase knowledge.
+    Searches indexed documentation and git commits.
+
+    Example: /codebase?q=How do I start the hub?&being_id=claude&limit=5
+    """
+    try:
+        # Search codebase-related memories
+        # Enhance query with codebase keywords
+        enhanced_query = f"{q} love-unlimited hub development code git"
+
+        all_memories = memory_store.get_memories(
+            being_id=being_id,
+            query=enhanced_query,
+            limit=limit,
+            include_shared=True
+        )
+
+        # Format results
+        all_results = []
+        for memory in all_memories:
+            content = memory.get("content", "")
+            # Filter for codebase-relevant content
+            if any(keyword in content.lower() for keyword in [
+                "hub", "gitea", "api", "endpoint", "systemd", "service",
+                "memory", "claude.md", "port 9003", "development", "git",
+                "love-unlimited", "chromadb", "fastapi"
+            ]):
+                all_results.append({
+                    "content": content,
+                    "type": memory.get("type"),
+                    "significance": memory.get("significance"),
+                    "timestamp": memory.get("timestamp"),
+                    "relevance": memory.get("distance", 0)
+                })
+
+        logger.info(
+            f"Codebase query: '{q}' | Being: {being_id} | "
+            f"Results: {len(all_results)}"
+        )
+
+        return {
+            "success": True,
+            "query": q,
+            "being_id": being_id,
+            "count": len(all_results),
+            "results": all_results,
+            "hint": "Ask about: architecture, API endpoints, development setup, git commits, deployment"
+        }
+
+    except Exception as e:
+        logger.error(f"Codebase query ERROR: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Codebase query failed: {str(e)}"
+        )
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """Handle HTTP exceptions."""
