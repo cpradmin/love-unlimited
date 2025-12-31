@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any
 
 import aiohttp
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
 
@@ -84,6 +84,31 @@ sharing_manager: Optional[SharingManager] = None
 
 # WebRTC
 peer_connections: Dict[str, RTCPeerConnection] = {}
+
+# WebSocket Connection Manager for Web CLI
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, being_id: str):
+        await websocket.accept()
+        self.active_connections[being_id] = websocket
+        logger.info(f"WebSocket connected: {being_id}")
+
+    def disconnect(self, being_id: str):
+        if being_id in self.active_connections:
+            del self.active_connections[being_id]
+            logger.info(f"WebSocket disconnected: {being_id}")
+
+    async def send_personal_message(self, message: dict, being_id: str):
+        if being_id in self.active_connections:
+            await self.active_connections[being_id].send_json(message)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections.values():
+            await connection.send_json(message)
+
+websocket_manager = ConnectionManager()
 
 # Add CORS middleware
 cors_config = config.cors_config
@@ -2447,6 +2472,576 @@ async def media_sharing_page(
 
             // Handle page unload
             window.addEventListener('beforeunload', stopSharing);
+        </script>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(content=html_content)
+
+
+# ============================================================================
+# Web CLI - Real-time Chat Interface
+# ============================================================================
+
+@app.websocket("/ws/chat/{being_id}")
+async def websocket_chat(websocket: WebSocket, being_id: str):
+    """
+    WebSocket endpoint for real-time chat.
+    Connect with: ws://localhost:9003/ws/chat/claude
+    """
+    await websocket_manager.connect(websocket, being_id)
+
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_json()
+
+            message_type = data.get("type")
+
+            if message_type == "chat":
+                # Store message as memory
+                content = data.get("content")
+                to_being = data.get("to", "all")
+
+                # Store in hub
+                result = memory_store.store_memory(
+                    being_id=being_id,
+                    content=content,
+                    metadata={
+                        "type": "conversation",
+                        "significance": "low",
+                        "private": False,
+                        "to": to_being,
+                        "via": "webcli"
+                    }
+                )
+
+                # Broadcast to all connected clients
+                await websocket_manager.broadcast({
+                    "type": "message",
+                    "from": being_id,
+                    "to": to_being,
+                    "content": content,
+                    "timestamp": datetime.now().isoformat(),
+                    "memory_id": result.get("memory_id")
+                })
+
+            elif message_type == "recall":
+                # Search memories
+                query = data.get("query", "")
+                memories = memory_store.get_memories(
+                    being_id=being_id,
+                    query=query,
+                    limit=10,
+                    include_shared=True
+                )
+
+                # Send results back to requester
+                await websocket_manager.send_personal_message({
+                    "type": "recall_results",
+                    "query": query,
+                    "memories": memories
+                }, being_id)
+
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(being_id)
+
+
+@app.get("/webcli", response_class=HTMLResponse)
+async def web_cli_interface():
+    """Love-Unlimited Web CLI - Real-time chat interface"""
+
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Love-Unlimited Web CLI</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            :root {
+                --bg-primary: #0f172a;
+                --bg-secondary: #1e293b;
+                --bg-tertiary: #334155;
+                --text-primary: #f1f5f9;
+                --text-secondary: #cbd5e1;
+                --accent: #3b82f6;
+                --accent-hover: #2563eb;
+                --border: #475569;
+                --success: #10b981;
+                --warning: #f59e0b;
+            }
+
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: var(--bg-primary);
+                color: var(--text-primary);
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* Header */
+            .header {
+                background: var(--bg-secondary);
+                border-bottom: 2px solid var(--border);
+                padding: 1rem 2rem;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+                color: var(--accent);
+            }
+
+            .header-controls {
+                display: flex;
+                gap: 1rem;
+                align-items: center;
+            }
+
+            .status {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                font-size: 0.875rem;
+            }
+
+            .status-indicator {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: var(--warning);
+            }
+
+            .status-indicator.connected {
+                background: var(--success);
+            }
+
+            select, input[type="text"], button {
+                padding: 0.5rem 1rem;
+                border: 1px solid var(--border);
+                border-radius: 0.375rem;
+                background: var(--bg-tertiary);
+                color: var(--text-primary);
+                font-size: 0.875rem;
+            }
+
+            button {
+                cursor: pointer;
+                background: var(--accent);
+                border-color: var(--accent);
+                transition: background 0.2s;
+            }
+
+            button:hover {
+                background: var(--accent-hover);
+            }
+
+            /* Main Container */
+            .container {
+                display: flex;
+                flex: 1;
+                overflow: hidden;
+            }
+
+            /* Sidebar */
+            .sidebar {
+                width: 250px;
+                background: var(--bg-secondary);
+                border-right: 2px solid var(--border);
+                padding: 1.5rem;
+                display: flex;
+                flex-direction: column;
+                gap: 1.5rem;
+            }
+
+            .being-selector label {
+                display: block;
+                margin-bottom: 0.5rem;
+                font-size: 0.875rem;
+                color: var(--text-secondary);
+            }
+
+            .being-selector select {
+                width: 100%;
+            }
+
+            .action-buttons {
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+
+            .action-buttons button {
+                width: 100%;
+                padding: 0.75rem;
+            }
+
+            /* Chat Area */
+            .chat-area {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .messages {
+                flex: 1;
+                overflow-y: auto;
+                padding: 1.5rem;
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .message {
+                max-width: 70%;
+                padding: 0.75rem 1rem;
+                border-radius: 0.75rem;
+                background: var(--bg-secondary);
+            }
+
+            .message.own {
+                align-self: flex-end;
+                background: var(--accent);
+            }
+
+            .message-header {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 0.5rem;
+                font-size: 0.75rem;
+                opacity: 0.8;
+            }
+
+            .message-from {
+                font-weight: 600;
+            }
+
+            .message-content {
+                line-height: 1.5;
+            }
+
+            .system-message {
+                align-self: center;
+                background: var(--bg-tertiary);
+                font-size: 0.875rem;
+                font-style: italic;
+                opacity: 0.7;
+                max-width: 100%;
+            }
+
+            /* Input Area */
+            .input-area {
+                border-top: 2px solid var(--border);
+                padding: 1.5rem;
+                background: var(--bg-secondary);
+            }
+
+            .input-container {
+                display: flex;
+                gap: 1rem;
+            }
+
+            #messageInput {
+                flex: 1;
+                padding: 0.75rem 1rem;
+                font-size: 1rem;
+            }
+
+            #sendBtn {
+                padding: 0.75rem 2rem;
+            }
+
+            /* Memory Panel */
+            .memory-panel {
+                position: fixed;
+                right: 0;
+                top: 0;
+                bottom: 0;
+                width: 350px;
+                background: var(--bg-secondary);
+                border-left: 2px solid var(--border);
+                transform: translateX(100%);
+                transition: transform 0.3s;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .memory-panel.open {
+                transform: translateX(0);
+            }
+
+            .memory-header {
+                padding: 1.5rem;
+                border-bottom: 2px solid var(--border);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .memory-search {
+                padding: 1rem;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .memory-search input {
+                width: 100%;
+            }
+
+            .memory-results {
+                flex: 1;
+                overflow-y: auto;
+                padding: 1rem;
+            }
+
+            .memory-item {
+                background: var(--bg-tertiary);
+                padding: 0.75rem;
+                border-radius: 0.5rem;
+                margin-bottom: 0.75rem;
+                font-size: 0.875rem;
+            }
+
+            .memory-meta {
+                font-size: 0.75rem;
+                opacity: 0.7;
+                margin-top: 0.5rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>💙 Love-Unlimited Web CLI</h1>
+            <div class="header-controls">
+                <div class="status">
+                    <div class="status-indicator" id="statusIndicator"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="sidebar">
+                <div class="being-selector">
+                    <label for="beingSelect">Speaking as:</label>
+                    <select id="beingSelect">
+                        <option value="jon">Jon</option>
+                        <option value="claude" selected>Claude</option>
+                        <option value="grok">Grok</option>
+                    </select>
+                </div>
+
+                <div class="being-selector">
+                    <label for="targetSelect">Speaking to:</label>
+                    <select id="targetSelect">
+                        <option value="all" selected>Everyone</option>
+                        <option value="jon">Jon</option>
+                        <option value="claude">Claude</option>
+                        <option value="grok">Grok</option>
+                    </select>
+                </div>
+
+                <div class="action-buttons">
+                    <button id="memoryBtn">📚 Memories</button>
+                    <button id="clearBtn">🗑️ Clear Chat</button>
+                </div>
+            </div>
+
+            <div class="chat-area">
+                <div class="messages" id="messages"></div>
+
+                <div class="input-area">
+                    <div class="input-container">
+                        <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off">
+                        <button id="sendBtn">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="memory-panel" id="memoryPanel">
+            <div class="memory-header">
+                <h2>Memories</h2>
+                <button id="closeMemoryBtn">✕</button>
+            </div>
+            <div class="memory-search">
+                <input type="text" id="memorySearch" placeholder="Search memories...">
+            </div>
+            <div class="memory-results" id="memoryResults"></div>
+        </div>
+
+        <script>
+            let ws = null;
+            let currentBeing = 'claude';
+
+            const elements = {
+                messages: document.getElementById('messages'),
+                messageInput: document.getElementById('messageInput'),
+                sendBtn: document.getElementById('sendBtn'),
+                beingSelect: document.getElementById('beingSelect'),
+                targetSelect: document.getElementById('targetSelect'),
+                statusIndicator: document.getElementById('statusIndicator'),
+                statusText: document.getElementById('statusText'),
+                memoryBtn: document.getElementById('memoryBtn'),
+                memoryPanel: document.getElementById('memoryPanel'),
+                closeMemoryBtn: document.getElementById('closeMemoryBtn'),
+                memorySearch: document.getElementById('memorySearch'),
+                memoryResults: document.getElementById('memoryResults'),
+                clearBtn: document.getElementById('clearBtn')
+            };
+
+            // Connect to WebSocket
+            function connect() {
+                const wsUrl = `ws://${window.location.host}/ws/chat/${currentBeing}`;
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    elements.statusIndicator.classList.add('connected');
+                    elements.statusText.textContent = 'Connected';
+                    addSystemMessage('Connected to Love-Unlimited Hub');
+                };
+
+                ws.onclose = () => {
+                    elements.statusIndicator.classList.remove('connected');
+                    elements.statusText.textContent = 'Disconnected';
+                    addSystemMessage('Disconnected from hub. Reconnecting...');
+                    setTimeout(connect, 3000);
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'message') {
+                        addMessage(data.from, data.content, data.timestamp, data.from === currentBeing);
+                    } else if (data.type === 'recall_results') {
+                        displayMemories(data.memories);
+                    }
+                };
+            }
+
+            // Add message to chat
+            function addMessage(from, content, timestamp, isOwn) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${isOwn ? 'own' : ''}`;
+
+                const time = new Date(timestamp).toLocaleTimeString();
+
+                messageDiv.innerHTML = `
+                    <div class="message-header">
+                        <span class="message-from">${from}</span>
+                        <span class="message-time">${time}</span>
+                    </div>
+                    <div class="message-content">${content}</div>
+                `;
+
+                elements.messages.appendChild(messageDiv);
+                elements.messages.scrollTop = elements.messages.scrollHeight;
+            }
+
+            // Add system message
+            function addSystemMessage(text) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message system-message';
+                messageDiv.innerHTML = `<div class="message-content">${text}</div>`;
+                elements.messages.appendChild(messageDiv);
+                elements.messages.scrollTop = elements.messages.scrollHeight;
+            }
+
+            // Send message
+            function sendMessage() {
+                const content = elements.messageInput.value.trim();
+                if (!content || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+                ws.send(JSON.stringify({
+                    type: 'chat',
+                    content: content,
+                    to: elements.targetSelect.value
+                }));
+
+                elements.messageInput.value = '';
+            }
+
+            // Search memories
+            function searchMemories(query) {
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+                ws.send(JSON.stringify({
+                    type: 'recall',
+                    query: query || 'recent conversations'
+                }));
+            }
+
+            // Display memories
+            function displayMemories(memories) {
+                elements.memoryResults.innerHTML = '';
+
+                if (!memories || memories.length === 0) {
+                    elements.memoryResults.innerHTML = '<div class="memory-item">No memories found</div>';
+                    return;
+                }
+
+                memories.forEach(memory => {
+                    const memoryDiv = document.createElement('div');
+                    memoryDiv.className = 'memory-item';
+                    memoryDiv.innerHTML = `
+                        <div>${memory.content}</div>
+                        <div class="memory-meta">
+                            ${memory.type || 'memory'} •
+                            ${new Date(memory.timestamp).toLocaleDateString()}
+                        </div>
+                    `;
+                    elements.memoryResults.appendChild(memoryDiv);
+                });
+            }
+
+            // Event listeners
+            elements.sendBtn.addEventListener('click', sendMessage);
+            elements.messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendMessage();
+            });
+
+            elements.beingSelect.addEventListener('change', (e) => {
+                currentBeing = e.target.value;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+                connect();
+            });
+
+            elements.memoryBtn.addEventListener('click', () => {
+                elements.memoryPanel.classList.add('open');
+                searchMemories('');
+            });
+
+            elements.closeMemoryBtn.addEventListener('click', () => {
+                elements.memoryPanel.classList.remove('open');
+            });
+
+            elements.memorySearch.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchMemories(e.target.value);
+                }
+            });
+
+            elements.clearBtn.addEventListener('click', () => {
+                if (confirm('Clear all messages?')) {
+                    elements.messages.innerHTML = '';
+                }
+            });
+
+            // Initial connection
+            connect();
+            addSystemMessage('Welcome to Love-Unlimited Web CLI. Type a message to begin.');
         </script>
     </body>
     </html>
