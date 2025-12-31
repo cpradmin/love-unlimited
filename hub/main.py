@@ -2527,6 +2527,43 @@ async def websocket_chat(websocket: WebSocket, being_id: str):
                     "memory_id": result.get("memory_id")
                 })
 
+                # Trigger AI response if message is directed to an AI being
+                ai_beings = ["claude", "grok"]
+                if to_being in ai_beings and to_being != being_id:
+                    try:
+                        # Get AI response
+                        ai_response = await ai_manager.get_response(
+                            being=to_being,
+                            message=content,
+                            context=f"Message from {being_id} in web CLI"
+                        )
+
+                        if ai_response:
+                            # Store AI response as memory
+                            ai_result = memory_store.store_memory(
+                                being_id=to_being,
+                                content=ai_response,
+                                metadata={
+                                    "type": "conversation",
+                                    "significance": "low",
+                                    "private": False,
+                                    "to": being_id,
+                                    "via": "webcli_ai"
+                                }
+                            )
+
+                            # Broadcast AI response
+                            await websocket_manager.broadcast({
+                                "type": "message",
+                                "from": to_being,
+                                "to": being_id,
+                                "content": ai_response,
+                                "timestamp": datetime.now().isoformat(),
+                                "memory_id": ai_result.get("memory_id")
+                            })
+                    except Exception as e:
+                        logger.error(f"AI response error: {str(e)}")
+
             elif message_type == "recall":
                 # Search memories
                 query = data.get("query", "")
