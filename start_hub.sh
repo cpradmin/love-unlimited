@@ -10,8 +10,8 @@ echo "======================================================================"
 export PYTHONPATH="$(pwd):$PYTHONPATH"
 
 # Activate virtual environment if it exists
-if [ -f "../venv2/bin/activate" ]; then
-    source ../venv2/bin/activate
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
 fi
 
-python -m uvicorn hub.main:app --host 0.0.0.0 --port 9002 --log-level info
+python -m uvicorn hub.main:app --host 0.0.0.0 --port 9003 --log-level info
