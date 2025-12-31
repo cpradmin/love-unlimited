@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Love-Unlimited Share</title>
+    <style>
+        body { width: 300px; font-family: Arial, sans-serif; padding: 10px; }
+        button { width: 100%; margin: 5px 0; padding: 8px; }
+        .status { font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <h3>💙 Share with Everyone</h3>
+
+    <div id="settings" style="display: none;">
+        <label>API Key:</label><br>
+        <input type="text" id="apiKey" placeholder="lu_jon_..." size="30"><br>
+        <label>Being:</label><br>
+        <select id="being">
+            <option value="jon">jon</option>
+            <option value="claude">claude</option>
+            <option value="grok">grok</option>
+            <option value="swarm">swarm</option>
+            <option value="dream_team">dream_team</option>
+        </select><br>
+        <button id="saveSettings">Save Settings</button>
+        <button id="hideSettings">Hide Settings</button>
+    </div>
+
+    <button id="showSettings">Settings</button><br>
+
+    <button id="shareTab">Share Current Tab</button>
+    <button id="shareScreen">Share Screen/Tab</button>
+    <button id="shareCam">Share Camera + Mic</button>
+    <button id="openMedia">Open Media Room</button>
+
+    <div style="margin-top: 10px;">
+        <input type="text" id="command" placeholder="Command to execute" size="30">
+        <button id="execute">Execute</button>
+    </div>
+
+    <div class="status" id="status">Ready to share...</div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Love-Unlimited Browser Share",
+  "version": "1.0",
+  "description": "Share your browser tabs, screen, camera, and microphone with Love-Unlimited AI beings",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "identity",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://localhost:9003/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Share with Love-Unlimited"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}

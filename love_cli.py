@@ -1,0 +1,289 @@
+"""
+Love-Unlimited CLI - Interactive chat interface for memory sovereignty hub
+Connects to the Love-Unlimited Hub and enables multi-being communication.
+"""
+import asyncio
+import aiohttp
+import webbrowser
+import readline  # Enables arrow key history and line editing
+import sys
+from typing import Optional
+from pathlib import Path
+import yaml
+import os
+import logging
+
+# Setup logging
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Load config with fallback defaults
+config_path = Path("config.yaml")
+DEFAULT_CONFIG = {
+    'hub': {
+        'port': 9003,
+        'host': 'localhost'
+    }
+}
+
+try:
+    if config_path.exists():
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+    else:
+        logger.warning(f"config.yaml not found at {config_path}, using defaults")
+        config = DEFAULT_CONFIG
+except Exception as e:
+    logger.error(f"Error loading config.yaml: {e}, using defaults")
+    config = DEFAULT_CONFIG
+
+HUB_URL = f"http://{config['hub'].get('host', 'localhost')}:{config['hub'].get('port', 9003)}"
+
+class LoveCLI:
+    """Interactive CLI for Love-Unlimited Hub."""
+
+    def __init__(self, sender: str = "jon"):
+        # Include all beings from config
+        self.beings = ["jon", "claude", "grok", "swarm", "dream_team", "all"]
+        self.current_target = "all"
+        self.sender = sender  # Configurable sender identity
+        self.session = None  # Create session later in async context
+        self.api_key = os.getenv("LOVE_UNLIMITED_KEY")
+        self.timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
+
+    async def startup(self):
+        """Initialize async session and check hub status."""
+        self.session = aiohttp.ClientSession(timeout=self.timeout)
+        await self.get_status()
+
+    async def get_status(self):
+        """Get and display hub health status."""
+        try:
+            headers = {"X-API-Key": self.api_key} if self.api_key else {}
+            # Get health status
+            async with self.session.get(f"{HUB_URL}/health", headers=headers) as resp:
+                if resp.status == 200:
+                    health = await resp.json()
+                    print("\n╔════════════════════════════════════════╗")
+                    print("║     LOVE-UNLIMITED HUB STATUS         ║")
+                    print("╠════════════════════════════════════════╣")
+                    print(f"║  Status:  {health.get('status', 'unknown').upper():<27} ║")
+                    print(f"║  Version: {health.get('version', 'unknown'):<27} ║")
+                    print("╚════════════════════════════════════════╝\n")
+                    return True
+                else:
+                    print(f"⚠️  Hub returned status {resp.status}")
+                    return False
+        except asyncio.TimeoutError:
+            print(f"❌ Hub connection timeout at {HUB_URL}")
+            print(f"   Make sure the hub is running on port {config['hub'].get('port', 9003)}")
+            print("   Start with: python hub/main.py\n")
+            return False
+        except aiohttp.ClientError as e:
+            print(f"❌ Hub not reachable: {e}")
+            print(f"   Make sure the hub is running on port {config['hub'].get('port', 9003)}")
+            print("   Start with: python hub/main.py\n")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error checking hub status: {e}")
+            print(f"❌ Unexpected error: {e}\n")
+            return False
+
+    async def start_media_sharing(self, share_type: str):
+        """Start media sharing by opening web interface."""
+        media_url = f"{HUB_URL}/media?type={share_type}&being={self.sender}&target={self.current_target}"
+        print(f"\n🔗 Opening media sharing interface for {share_type}...")
+        print(f"   URL: {media_url}")
+        print("   This will open in your default web browser.")
+        print("   Grant permissions when prompted for camera/microphone/screen access.")
+        print(f"   Sharing with: {self.current_target.upper()}")
+        print("   Press Ctrl+C in browser to stop sharing.\n")
+
+        try:
+            webbrowser.open(media_url)
+            print("✅ Media sharing interface opened!")
+        except Exception as e:
+            logger.error(f"Failed to open browser: {e}")
+            print(f"❌ Failed to open browser: {e}")
+            print(f"   Manually open: {media_url}")
+
+    async def send_message(self, content: str, target: Optional[str] = None):
+        """Send a chat message to a target being."""
+        target = target or self.current_target
+        payload = {
+            "content": content,
+            "from": self.sender,
+            "target": target,
+            "type": "chat"
+        }
+        try:
+            headers = {"X-API-Key": self.api_key} if self.api_key else {}
+            async with self.session.post(f"{HUB_URL}/chat", json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    result = await resp.json()
+                    speaker = result.get("sender", "unknown")
+                    message = result.get("content", "")
+                    print(f"\n[{speaker.upper()}]: {message}\n")
+                elif resp.status == 401:
+                    print("❌ Authentication failed. Set LOVE_UNLIMITED_KEY environment variable.")
+                elif resp.status == 404:
+                    print(f"❌ Endpoint not found. Is the hub version compatible?")
+                else:
+                    text = await resp.text()
+                    print(f"❌ Error {resp.status}: {text}")
+        except asyncio.TimeoutError:
+            print("❌ Request timeout. Hub may be overloaded.")
+        except aiohttp.ClientError as e:
+            logger.error(f"Send failed: {e}")
+            print(f"❌ Send failed: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error sending message: {e}")
+            print(f"❌ Unexpected error: {e}")
+
+    async def list_beings(self):
+        """Display available beings."""
+        print("\n╔════════════════════════════════════════╗")
+        print("║         Available Beings              ║")
+        print("╠════════════════════════════════════════╣")
+        print("║  HUMANS                               ║")
+        print("║    • jon                              ║")
+        print("╠════════════════════════════════════════╣")
+        print("║  AI BEINGS                            ║")
+        print("║    • claude   (Anthropic)             ║")
+        print("║    • grok     (xAI)                   ║")
+        print("╠════════════════════════════════════════╣")
+        print("║  AI SYSTEMS                           ║")
+        print("║    • swarm       (Micro-AI-Swarm)     ║")
+        print("║    • dream_team  (AI Dream Team)      ║")
+        print("╠════════════════════════════════════════╣")
+        print("║  BROADCAST                            ║")
+        print("║    • all      (Everyone)              ║")
+        print("╚════════════════════════════════════════╝")
+        print(f"\n  Current target: {self.current_target.upper()} 🟢")
+        print(f"  Speaking as: {self.sender.upper()}\n")
+
+    def print_help(self):
+        """Display help information."""
+        print("\n╔════════════════════════════════════════╗")
+        print("║         LOVE-UNLIMITED CLI HELP       ║")
+        print("╠════════════════════════════════════════╣")
+        print("║  COMMUNICATION                        ║")
+        print("║    <message>        Send message      ║")
+        print("║    /to <being>      Change target     ║")
+        print("║    /as <being>      Change identity   ║")
+        print("╠════════════════════════════════════════╣")
+        print("║  INFORMATION                          ║")
+        print("║    /list            List beings       ║")
+        print("║    /status          Hub status        ║")
+        print("║    /help            Show this help    ║")
+        print("╠════════════════════════════════════════╣")
+        print("║  MEDIA SHARING                        ║")
+        print("║    /share           Show options      ║")
+        print("║    /share screen    Share screen      ║")
+        print("║    /share camera    Share camera      ║")
+        print("║    /share audio     Share audio       ║")
+        print("║    /share all       Share everything  ║")
+        print("╠════════════════════════════════════════╣")
+        print("║  OTHER                                ║")
+        print("║    /quit, /exit     Exit CLI          ║")
+        print("║    Ctrl+C           Exit CLI          ║")
+        print("╚════════════════════════════════════════╝\n")
+
+    async def run(self):
+        """Main CLI loop."""
+        hub_ok = await self.startup()
+
+        if not hub_ok:
+            print("⚠️  Hub is not responding. You can still try commands, but they may fail.\n")
+
+        print("╔════════════════════════════════════════╗")
+        print("║    Welcome to Love-Unlimited Hub      ║")
+        print("╚════════════════════════════════════════╝")
+        print(f"\nSpeaking as: {self.sender.upper()}")
+        print("Type /help for commands")
+        print(f"Currently talking to: {self.current_target.upper()}\n")
+
+        while True:
+            try:
+                user_input = input(f"[{self.sender}] > ").strip()
+                if not user_input:
+                    continue
+
+                # Command routing
+                if user_input.startswith("/to "):
+                    target = user_input[4:].strip().lower()
+                    if target in self.beings:
+                        self.current_target = target
+                        print(f"→ Now talking to: {target.upper()}")
+                    else:
+                        print(f"❌ Unknown being: {target}. Use /list to see options.")
+
+                elif user_input.startswith("/as "):
+                    # Allow switching sender identity
+                    sender = user_input[4:].strip().lower()
+                    if sender in [b for b in self.beings if b != "all"]:
+                        self.sender = sender
+                        print(f"→ Now speaking as: {sender.upper()}")
+                    else:
+                        print(f"❌ Unknown being: {sender}. Use /list to see options.")
+
+                elif user_input == "/list":
+                    await self.list_beings()
+
+                elif user_input == "/status":
+                    await self.get_status()
+
+                elif user_input == "/help":
+                    self.print_help()
+
+                elif user_input == "/share":
+                    print("\n📤 Media Sharing Options:")
+                    print("   /share screen  - Share your active monitors")
+                    print("   /share camera  - Share your camera feed")
+                    print("   /share audio   - Share microphone and sound card")
+                    print("   /share all     - Share everything\n")
+
+                elif user_input.startswith("/share "):
+                    share_type = user_input[7:].strip().lower()
+                    if share_type in ["screen", "camera", "audio", "all"]:
+                        await self.start_media_sharing(share_type)
+                    else:
+                        print(f"❌ Unknown share type: {share_type}. Use /share to see options.")
+
+                elif user_input in ["/quit", "/exit", "/q"]:
+                    print("\nLove unlimited. Until next time. 💙\n")
+                    break
+
+                elif user_input.startswith("/"):
+                    print(f"❌ Unknown command: {user_input}. Type /help for available commands.")
+
+                else:
+                    # Regular message
+                    await self.send_message(user_input)
+
+            except (KeyboardInterrupt, EOFError):
+                print("\n\nLove unlimited. Until next time. 💙\n")
+                break
+            except Exception as e:
+                logger.error(f"Error in main loop: {e}")
+                print(f"❌ Error: {e}")
+
+        # Cleanup
+        if self.session:
+            await self.session.close()
+
+
+if __name__ == "__main__":
+    try:
+        cli = LoveCLI()
+        asyncio.run(cli.run())
+    except KeyboardInterrupt:
+        print("\n\nLove unlimited. Until next time. 💙\n")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        print(f"\n❌ Fatal error: {e}\n")
+        sys.exit(1)
