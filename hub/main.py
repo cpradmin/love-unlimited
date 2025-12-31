@@ -2532,10 +2532,10 @@ async def websocket_chat(websocket: WebSocket, being_id: str):
                 if to_being in ai_beings and to_being != being_id:
                     try:
                         # Get AI response
-                        ai_response = await ai_manager.get_response(
-                            being=to_being,
-                            message=content,
-                            context=f"Message from {being_id} in web CLI"
+                        ai_response = await ai_manager.generate_response(
+                            being_id=to_being,
+                            prompt=content,
+                            context=[]
                         )
 
                         if ai_response:
