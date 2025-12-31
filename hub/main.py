@@ -2659,6 +2659,19 @@ async def web_cli_interface():
                 --warning: #f59e0b;
             }
 
+            :root[data-theme="light"] {
+                --bg-primary: #f8fafc;
+                --bg-secondary: #e2e8f0;
+                --bg-tertiary: #cbd5e1;
+                --text-primary: #0f172a;
+                --text-secondary: #475569;
+                --accent: #3b82f6;
+                --accent-hover: #2563eb;
+                --border: #94a3b8;
+                --success: #10b981;
+                --warning: #f59e0b;
+            }
+
             body {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 background: var(--bg-primary);
@@ -2903,6 +2916,8 @@ async def web_cli_interface():
         <div class="header">
             <h1>💙 Love-Unlimited Web CLI</h1>
             <div class="header-controls">
+                <button id="settingsBtn" title="Settings">⚙️</button>
+                <button id="themeToggle" title="Toggle theme">🌙</button>
                 <div class="status">
                     <div class="status-indicator" id="statusIndicator"></div>
                     <span id="statusText">Disconnected</span>
@@ -2960,6 +2975,35 @@ async def web_cli_interface():
             <div class="memory-results" id="memoryResults"></div>
         </div>
 
+        <div class="memory-panel" id="settingsPanel">
+            <div class="memory-header">
+                <h2>⚙️ Settings</h2>
+                <button id="closeSettingsBtn">✕</button>
+            </div>
+            <div style="padding: 1rem;">
+                <div style="margin-bottom: 1.5rem;">
+                    <h3 style="font-size: 1rem; margin-bottom: 0.75rem;">Notifications</h3>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="soundNotifications" checked>
+                        <span>Sound notifications</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="browserNotifications">
+                        <span>Browser notifications</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="systemMessages" checked>
+                        <span>Show system messages</span>
+                    </label>
+                </div>
+                <div>
+                    <h3 style="font-size: 1rem; margin-bottom: 0.75rem;">About</h3>
+                    <p style="font-size: 0.875rem; opacity: 0.8;">Love-Unlimited Web CLI v0.1.0</p>
+                    <p style="font-size: 0.75rem; opacity: 0.6; margin-top: 0.5rem;">Love unlimited. Until next time. 💙</p>
+                </div>
+            </div>
+        </div>
+
         <script>
             let ws = null;
             let currentBeing = 'claude';
@@ -2972,11 +3016,18 @@ async def web_cli_interface():
                 targetSelect: document.getElementById('targetSelect'),
                 statusIndicator: document.getElementById('statusIndicator'),
                 statusText: document.getElementById('statusText'),
+                themeToggle: document.getElementById('themeToggle'),
+                settingsBtn: document.getElementById('settingsBtn'),
                 memoryBtn: document.getElementById('memoryBtn'),
                 memoryPanel: document.getElementById('memoryPanel'),
                 closeMemoryBtn: document.getElementById('closeMemoryBtn'),
                 memorySearch: document.getElementById('memorySearch'),
                 memoryResults: document.getElementById('memoryResults'),
+                settingsPanel: document.getElementById('settingsPanel'),
+                closeSettingsBtn: document.getElementById('closeSettingsBtn'),
+                soundNotifications: document.getElementById('soundNotifications'),
+                browserNotifications: document.getElementById('browserNotifications'),
+                systemMessages: document.getElementById('systemMessages'),
                 clearBtn: document.getElementById('clearBtn')
             };
 
@@ -3026,10 +3077,19 @@ async def web_cli_interface():
 
                 elements.messages.appendChild(messageDiv);
                 elements.messages.scrollTop = elements.messages.scrollHeight;
+
+                // Trigger notifications for messages from others
+                if (!isOwn) {
+                    playNotificationSound();
+                    showBrowserNotification(`Message from ${from}`, content);
+                }
             }
 
             // Add system message
             function addSystemMessage(text) {
+                // Check if system messages are enabled
+                if (!elements.systemMessages.checked) return;
+
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'message system-message';
                 messageDiv.innerHTML = `<div class="message-content">${text}</div>`;
@@ -3037,10 +3097,76 @@ async def web_cli_interface():
                 elements.messages.scrollTop = elements.messages.scrollHeight;
             }
 
+            // Notification functions
+            function playNotificationSound() {
+                if (!elements.soundNotifications.checked) return;
+                // Simple beep using Web Audio API
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.2);
+            }
+
+            function showBrowserNotification(title, body) {
+                if (!elements.browserNotifications.checked) return;
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification(title, { body, icon: '💙' });
+                }
+            }
+
+            function requestNotificationPermission() {
+                if ('Notification' in window && Notification.permission === 'default') {
+                    Notification.requestPermission().then(permission => {
+                        if (permission === 'granted') {
+                            addSystemMessage('Browser notifications enabled!');
+                        }
+                    });
+                }
+            }
+
+            // Settings management
+            function loadSettings() {
+                const settings = {
+                    soundNotifications: localStorage.getItem('soundNotifications') !== 'false',
+                    browserNotifications: localStorage.getItem('browserNotifications') === 'true',
+                    systemMessages: localStorage.getItem('systemMessages') !== 'false'
+                };
+
+                elements.soundNotifications.checked = settings.soundNotifications;
+                elements.browserNotifications.checked = settings.browserNotifications;
+                elements.systemMessages.checked = settings.systemMessages;
+            }
+
+            function saveSettings() {
+                localStorage.setItem('soundNotifications', elements.soundNotifications.checked);
+                localStorage.setItem('browserNotifications', elements.browserNotifications.checked);
+                localStorage.setItem('systemMessages', elements.systemMessages.checked);
+            }
+
             // Send message
             function sendMessage() {
                 const content = elements.messageInput.value.trim();
-                if (!content || !ws || ws.readyState !== WebSocket.OPEN) return;
+                if (!content) return;
+
+                // Handle slash commands
+                if (content.startsWith('/')) {
+                    handleSlashCommand(content);
+                    elements.messageInput.value = '';
+                    return;
+                }
+
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
                 ws.send(JSON.stringify({
                     type: 'chat',
@@ -3049,6 +3175,62 @@ async def web_cli_interface():
                 }));
 
                 elements.messageInput.value = '';
+            }
+
+            // Handle slash commands
+            function handleSlashCommand(command) {
+                const parts = command.split(' ');
+                const cmd = parts[0].toLowerCase();
+                const args = parts.slice(1).join(' ');
+
+                switch(cmd) {
+                    case '/recall':
+                        if (args) {
+                            elements.memoryPanel.classList.add('open');
+                            searchMemories(args);
+                            addSystemMessage(`🔍 Searching memories for: ${args}`);
+                        } else {
+                            addSystemMessage('Usage: /recall [topic] - Search memories');
+                        }
+                        break;
+
+                    case '/summarize':
+                        addSystemMessage('📝 Generating conversation summary...');
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'chat',
+                                content: 'Please provide a brief summary of our recent conversation.',
+                                to: 'claude'
+                            }));
+                        }
+                        break;
+
+                    case '/help':
+                        addSystemMessage(`
+                            <strong>Available Commands:</strong><br>
+                            /recall [topic] - Search memories<br>
+                            /summarize - Get conversation summary<br>
+                            /help - Show this help<br>
+                            /clear - Clear chat (or use 🗑️ button)<br>
+                            /theme - Toggle light/dark theme
+                        `);
+                        break;
+
+                    case '/clear':
+                        if (confirm('Clear all messages?')) {
+                            elements.messages.innerHTML = '';
+                            addSystemMessage('Chat cleared.');
+                        }
+                        break;
+
+                    case '/theme':
+                        toggleTheme();
+                        addSystemMessage(`Theme switched to ${document.documentElement.getAttribute('data-theme')} mode.`);
+                        break;
+
+                    default:
+                        addSystemMessage(`Unknown command: ${cmd}. Type /help for available commands.`);
+                }
             }
 
             // Search memories
@@ -3107,6 +3289,25 @@ async def web_cli_interface():
                 elements.memoryPanel.classList.remove('open');
             });
 
+            elements.settingsBtn.addEventListener('click', () => {
+                elements.settingsPanel.classList.add('open');
+            });
+
+            elements.closeSettingsBtn.addEventListener('click', () => {
+                elements.settingsPanel.classList.remove('open');
+            });
+
+            // Settings checkboxes
+            elements.soundNotifications.addEventListener('change', saveSettings);
+            elements.systemMessages.addEventListener('change', saveSettings);
+
+            elements.browserNotifications.addEventListener('change', () => {
+                saveSettings();
+                if (elements.browserNotifications.checked) {
+                    requestNotificationPermission();
+                }
+            });
+
             elements.memorySearch.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     searchMemories(e.target.value);
@@ -3119,7 +3320,29 @@ async def web_cli_interface():
                 }
             });
 
-            // Initial connection
+            // Theme toggle
+            function toggleTheme() {
+                const root = document.documentElement;
+                const currentTheme = root.getAttribute('data-theme');
+                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+
+                root.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                elements.themeToggle.textContent = newTheme === 'light' ? '☀️' : '🌙';
+            }
+
+            // Load saved theme
+            function loadTheme() {
+                const savedTheme = localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                elements.themeToggle.textContent = savedTheme === 'light' ? '☀️' : '🌙';
+            }
+
+            elements.themeToggle.addEventListener('click', toggleTheme);
+
+            // Initial setup
+            loadTheme();
+            loadSettings();
             connect();
             addSystemMessage('Welcome to Love-Unlimited Web CLI. Type a message to begin.');
         </script>
