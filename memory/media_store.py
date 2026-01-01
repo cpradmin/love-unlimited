@@ -200,12 +200,16 @@ class MediaStore:
             # Determine file extension
             ext = Path(filename).suffix or '.bin'
 
-            # Determine storage path
-            media_type_plural = f"{media_type}s" if media_type != 'audio' else 'audio'
-            if media_type == 'document':
-                media_type_plural = 'documents'
+            # Determine storage path (match directory names in _ensure_media_dirs)
+            dir_mapping = {
+                'image': 'images',
+                'code': 'code',
+                'audio': 'audio',
+                'document': 'documents'
+            }
+            media_dir = dir_mapping.get(media_type, media_type)
 
-            file_path = self.media_dir / being_id / media_type_plural / f"{timestamp}_{unique_id}{ext}"
+            file_path = self.media_dir / being_id / media_dir / f"{timestamp}_{unique_id}{ext}"
 
             # Write file to disk
             file_path.write_bytes(file_content)
@@ -236,7 +240,7 @@ class MediaStore:
                 "linked_memory_id": linked_memory_id or "",
                 "private": str(private),
                 "created_at": datetime.now().isoformat(),
-                **{k: str(v) if v is not None else "" for k, v in processed_metadata.items() if k not in ['dimensions', 'thumbnail_path', 'extracted_text']}
+                **{k: str(v) if v is not None else "" for k, v in processed_metadata.items() if k not in ['dimensions', 'extracted_text']}
             }
 
             # Prepare content for embedding (description + extracted text)

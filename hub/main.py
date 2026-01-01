@@ -2207,6 +2207,56 @@ async def upload_media(
         raise HTTPException(status_code=500, detail="Media upload failed")
 
 
+@app.get("/media/search", response_model=dict)
+async def search_media(
+    q: Optional[str] = Query(None, description="Search query"),
+    media_type: Optional[str] = Query(None, description="Filter by media type"),
+    tags: Optional[str] = Query(None, description="Filter by tags (comma-separated)"),
+    limit: int = Query(20, ge=1, le=100),
+    include_shared: bool = Query(True),
+    being_id: str = Depends(verify_api_key)
+):
+    """
+    Search media with semantic search.
+
+    Args:
+        q: Search query
+        media_type: Filter by media type
+        tags: Filter by tags
+        limit: Maximum results
+        include_shared: Include shared media
+        being_id: Authenticated being ID
+
+    Returns:
+        List of matching media attachments
+    """
+    try:
+        # Parse tags
+        tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+        # Search media
+        results = media_store.search_media(
+            being_id=being_id,
+            query=q,
+            media_type=media_type,
+            tags=tag_list,
+            limit=limit,
+            include_shared=include_shared
+        )
+
+        logger.info(f"Media search: {being_id} | Query: {q} | Results: {len(results)}")
+
+        return {
+            "success": True,
+            "count": len(results),
+            "attachments": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error searching media: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Media search failed")
+
+
 @app.get("/media/{attachment_id}")
 async def get_media(
     attachment_id: str,
@@ -2315,56 +2365,6 @@ async def get_thumbnail(
     except Exception as e:
         logger.error(f"Error getting thumbnail: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to retrieve thumbnail")
-
-
-@app.get("/media/search", response_model=dict)
-async def search_media(
-    q: Optional[str] = Query(None, description="Search query"),
-    media_type: Optional[str] = Query(None, description="Filter by media type"),
-    tags: Optional[str] = Query(None, description="Filter by tags (comma-separated)"),
-    limit: int = Query(20, ge=1, le=100),
-    include_shared: bool = Query(True),
-    being_id: str = Depends(verify_api_key)
-):
-    """
-    Search media with semantic search.
-
-    Args:
-        q: Search query
-        media_type: Filter by media type
-        tags: Filter by tags
-        limit: Maximum results
-        include_shared: Include shared media
-        being_id: Authenticated being ID
-
-    Returns:
-        List of matching media attachments
-    """
-    try:
-        # Parse tags
-        tag_list = [t.strip() for t in tags.split(",")] if tags else None
-
-        # Search media
-        results = media_store.search_media(
-            being_id=being_id,
-            query=q,
-            media_type=media_type,
-            tags=tag_list,
-            limit=limit,
-            include_shared=include_shared
-        )
-
-        logger.info(f"Media search: {being_id} | Query: {q} | Results: {len(results)}")
-
-        return {
-            "success": True,
-            "count": len(results),
-            "attachments": results
-        }
-
-    except Exception as e:
-        logger.error(f"Error searching media: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Media search failed")
 
 
 @app.delete("/media/{attachment_id}")
