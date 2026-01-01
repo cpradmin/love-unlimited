@@ -262,3 +262,85 @@ class SuccessResponse(BaseModel):
     message: str
     data: Optional[Dict[str, Any]] = None
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+# ============================================================================
+# User Profile Models
+# ============================================================================
+
+class UIPreferences(BaseModel):
+    """Web CLI UI preferences."""
+    theme: str = "dark"
+    sound_notifications: bool = True
+    browser_notifications: bool = False
+    system_messages: bool = True
+
+
+class CustomPrompts(BaseModel):
+    """Custom AI behavior settings."""
+    system_prompt: Optional[str] = None
+    personality_traits: List[str] = Field(default_factory=list)
+    preferred_response_style: str = "balanced"  # "brief", "balanced", "detailed"
+
+
+class PersonalMetadata(BaseModel):
+    """Personal information and interests."""
+    bio: Optional[str] = None
+    interests: List[str] = Field(default_factory=list)
+    expertise: List[str] = Field(default_factory=list)
+    avatar_url: Optional[str] = None
+    timezone: Optional[str] = None
+
+
+class ConversationBookmark(BaseModel):
+    """Bookmarked conversation."""
+    id: str
+    title: str
+    timestamp: datetime
+    memory_ids: List[str] = Field(default_factory=list)
+
+
+class Favorites(BaseModel):
+    """Favorites and bookmarks."""
+    memory_ids: List[str] = Field(default_factory=list)
+    conversation_bookmarks: List[ConversationBookmark] = Field(default_factory=list)
+    tags_of_interest: List[str] = Field(default_factory=list)
+
+
+class SharingPreferences(BaseModel):
+    """Privacy and sharing settings."""
+    default_memory_private: bool = False
+    auto_share_with: List[str] = Field(default_factory=list)
+    notification_preferences: Dict[str, bool] = Field(default_factory=dict)
+
+
+class UserProfile(BaseModel):
+    """Complete user profile."""
+    ui_preferences: UIPreferences = Field(default_factory=UIPreferences)
+    custom_prompts: CustomPrompts = Field(default_factory=CustomPrompts)
+    personal: PersonalMetadata = Field(default_factory=PersonalMetadata)
+    favorites: Favorites = Field(default_factory=Favorites)
+    sharing_preferences: SharingPreferences = Field(default_factory=SharingPreferences)
+    profile_version: str = "1.0"
+    last_updated: datetime = Field(default_factory=datetime.now)
+
+
+class UpdateProfileRequest(BaseModel):
+    """Partial profile update request."""
+    ui_preferences: Optional[UIPreferences] = None
+    custom_prompts: Optional[CustomPrompts] = None
+    personal: Optional[PersonalMetadata] = None
+    favorites: Optional[Favorites] = None
+    sharing_preferences: Optional[SharingPreferences] = None
+
+
+class FavoriteMemoryRequest(BaseModel):
+    """Add or remove memory from favorites."""
+    memory_id: str
+    action: str  # "add" or "remove"
+
+
+class BookmarkConversationRequest(BaseModel):
+    """Bookmark a conversation."""
+    title: str
+    memory_ids: List[str]

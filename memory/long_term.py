@@ -259,6 +259,26 @@ class LongTermMemory:
         finally:
             session.close()
 
+    def update_being_extra_data(self, being_id: str, extra_data: Dict[str, Any]) -> bool:
+        """Update being's extra_data JSON column."""
+        session = self.Session()
+        try:
+            being = session.query(BeingRecord).filter_by(id=being_id).first()
+            if being:
+                being.extra_data = extra_data
+                session.commit()
+                logger.info(f"Updated extra_data for {being_id}")
+                return True
+            else:
+                logger.warning(f"Being {being_id} not found")
+                return False
+        except Exception as e:
+            logger.error(f"Error updating extra_data for {being_id}: {e}")
+            session.rollback()
+            return False
+        finally:
+            session.close()
+
     # ========================================================================
     # Memory Storage
     # ========================================================================

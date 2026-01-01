@@ -283,3 +283,164 @@ class BeingManager:
             "memory_stats": self.long_term.get_stats(),
             "short_term_stats": self.short_term.get_stats()
         }
+
+    # ========================================================================
+    # User Profile Management
+    # ========================================================================
+
+    def get_profile(self, being_id: str) -> Dict[str, Any]:
+        """Get user profile from extra_data, return default if none exists."""
+        from hub.models import UserProfile
+
+        being = self.long_term.get_being(being_id)
+        if not being:
+            logger.warning(f"Being {being_id} not found, returning default profile")
+            return UserProfile().dict()
+
+        extra_data = being.get("extra_data", {})
+        profile_data = extra_data.get("profile", {})
+
+        if not profile_data:
+            # Return default profile
+            logger.info(f"No profile found for {being_id}, returning default")
+            return UserProfile().dict()
+
+        # Validate and return
+        try:
+            profile = UserProfile(**profile_data)
+            return profile.dict()
+        except Exception as e:
+            logger.warning(f"Invalid profile for {being_id}, returning default: {e}")
+            return UserProfile().dict()
+
+    def update_profile(self, being_id: str, updates: Dict[str, Any]) -> bool:
+        """Update user profile with partial updates."""
+        being = self.long_term.get_being(being_id)
+        if not being:
+            logger.error(f"Being {being_id} not found")
+            return False
+
+        # Get current profile
+        extra_data = being.get("extra_data", {})
+        current_profile = extra_data.get("profile", {})
+
+        # Merge updates (deep merge for nested dicts)
+        for key, value in updates.items():
+            if value is not None:
+                if isinstance(value, dict) and key in current_profile:
+                    # Deep merge for nested dictionaries
+                    current_profile[key].update(value)
+                else:
+                    current_profile[key] = value
+
+        # Update timestamp
+        current_profile["last_updated"] = datetime.now().isoformat()
+
+        # Store back
+        extra_data["profile"] = current_profile
+        success = self.long_term.update_being_extra_data(being_id, extra_data)
+
+        if success:
+            logger.info(f"Updated profile for {being_id}: {list(updates.keys())}")
+
+        return success
+
+    def manage_favorite(self, being_id: str, memory_id: str, action: str) -> bool:
+        """Add or remove memory from favorites."""
+        profile = self.get_profile(being_id)
+        favorites = profile.get("favorites", {}).get("memory_ids", [])
+
+        if action == "add" and memory_id not in favorites:
+            favorites.append(memory_id)
+            logger.info(f"Added {memory_id} to favorites for {being_id}")
+        elif action == "remove" and memory_id in favorites:
+            favorites.remove(memory_id)
+            logger.info(f"Removed {memory_id} from favorites for {being_id}")
+        else:
+            logger.warning(f"Invalid favorite action: {action}")
+            return False
+
+        return self.update_profile(being_id, {
+            "favorites": {"memory_ids": favorites}
+        })
+
+    def bookmark_conversation(self, being_id: str, title: str, memory_ids: List[str]) -> str:
+        """Bookmark a conversation."""
+        import uuid
+
+        profile = self.get_profile(being_id)
+        bookmarks = profile.get("favorites", {}).get("conversation_bookmarks", [])
+
+        bookmark = {
+            "id": f"bookmark_{uuid.uuid4().hex[:12]}",
+            "title": title,
+            "timestamp": datetime.now().isoformat(),
+            "memory_ids": memory_ids
+        }
+
+        bookmarks.append(bookmark)
+        self.update_profile(being_id, {
+            "favorites": {"conversation_bookmarks": bookmarks}
+        })
+
+        logger.info(f"Bookmarked conversation '{title}' for {being_id}")
+        return bookmark["id"]
+
+    def export_profile(self, being_id: str, include_memories: bool = False) -> Dict[str, Any]:
+        """Export complete profile and optionally memories."""
+        being = self.long_term.get_being(being_id)
+        if not being:
+            logger.error(f"Being {being_id} not found for export")
+            return {}
+
+        profile = self.get_profile(being_id)
+
+        export_data = {
+            "being_id": being_id,
+            "name": being["name"],
+            "type": being["type"],
+            "identity_core": being["identity_core"],
+            "profile": profile,
+            "exported_at": datetime.now().isoformat(),
+            "version": "1.0"
+        }
+
+        if include_memories:
+            # Get all memories for this being
+            from memory.store import MemoryStore
+            memory_store = MemoryStore()
+
+            memories = memory_store.get_memories(
+                being_id=being_id,
+                query="",
+                limit=10000
+            )
+            export_data["memories"] = [m.dict() for m in memories]
+            logger.info(f"Exported {len(memories)} memories for {being_id}")
+
+        logger.info(f"Exported profile for {being_id}")
+        return export_data
+
+    def import_profile(self, being_id: str, profile_data: Dict[str, Any], merge: bool = False) -> bool:
+        """Import profile from backup."""
+        if merge:
+            # Merge with existing profile
+            success = self.update_profile(being_id, profile_data.get("profile", {}))
+            if success:
+                logger.info(f"Merged profile data for {being_id}")
+            return success
+        else:
+            # Replace entire profile
+            being = self.long_term.get_being(being_id)
+            if not being:
+                logger.error(f"Being {being_id} not found for import")
+                return False
+
+            extra_data = being.get("extra_data", {})
+            extra_data["profile"] = profile_data.get("profile", {})
+            success = self.long_term.update_being_extra_data(being_id, extra_data)
+
+            if success:
+                logger.info(f"Imported profile for {being_id}")
+
+            return success

@@ -50,6 +50,9 @@ from hub.models import (
     ContextResponse,
     MemoryType,
     Significance,
+    UpdateProfileRequest,
+    FavoriteMemoryRequest,
+    BookmarkConversationRequest,
 )
 
 # ============================================================================
@@ -415,6 +418,116 @@ async def get_others(being_id: str = Depends(verify_api_key)):
         "others": [],
         "message": "Other beings retrieval not yet implemented"
     }
+
+
+# ============================================================================
+# User Profile Endpoints
+# ============================================================================
+
+@app.get("/profile", response_model=dict)
+async def get_profile(being_id: str = Depends(verify_api_key)):
+    """Get complete user profile. Returns default if none exists."""
+    logger.info(f"Getting profile for {being_id}")
+
+    profile = being_manager.get_profile(being_id)
+
+    return {
+        "being_id": being_id,
+        "profile": profile
+    }
+
+
+@app.put("/profile", response_model=SuccessResponse)
+async def update_profile(
+    request: UpdateProfileRequest,
+    being_id: str = Depends(verify_api_key)
+):
+    """Update user profile (partial updates allowed)."""
+    logger.info(f"Updating profile for {being_id}")
+
+    updates = request.dict(exclude_none=True)
+    success = being_manager.update_profile(being_id, updates)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Profile update failed")
+
+    return SuccessResponse(
+        message="Profile updated",
+        data={"being_id": being_id, "updated_fields": list(updates.keys())}
+    )
+
+
+@app.post("/profile/favorites", response_model=SuccessResponse)
+async def manage_favorite(
+    request: FavoriteMemoryRequest,
+    being_id: str = Depends(verify_api_key)
+):
+    """Add or remove memory from favorites."""
+    logger.info(f"Managing favorite for {being_id}: {request.action} {request.memory_id}")
+
+    success = being_manager.manage_favorite(being_id, request.memory_id, request.action)
+
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Failed to {request.action} favorite")
+
+    return SuccessResponse(
+        message=f"Memory {request.action}ed",
+        data={"memory_id": request.memory_id, "action": request.action}
+    )
+
+
+@app.post("/profile/bookmarks", response_model=SuccessResponse)
+async def bookmark_conversation(
+    request: BookmarkConversationRequest,
+    being_id: str = Depends(verify_api_key)
+):
+    """Bookmark a conversation."""
+    logger.info(f"Bookmarking conversation for {being_id}: {request.title}")
+
+    bookmark_id = being_manager.bookmark_conversation(
+        being_id, request.title, request.memory_ids
+    )
+
+    return SuccessResponse(
+        message="Conversation bookmarked",
+        data={"bookmark_id": bookmark_id, "title": request.title}
+    )
+
+
+@app.get("/profile/export", response_model=dict)
+async def export_profile(
+    include_memories: bool = Query(False, description="Include memories in export"),
+    being_id: str = Depends(verify_api_key)
+):
+    """Export profile as JSON for backup."""
+    logger.info(f"Exporting profile for {being_id} (include_memories={include_memories})")
+
+    export_data = being_manager.export_profile(being_id, include_memories)
+
+    if not export_data:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    return export_data
+
+
+@app.post("/profile/import", response_model=SuccessResponse)
+async def import_profile(
+    profile_data: Dict[str, Any],
+    merge: bool = Query(False, description="Merge with existing profile"),
+    being_id: str = Depends(verify_api_key)
+):
+    """Import profile from backup JSON."""
+    logger.info(f"Importing profile for {being_id} (merge={merge})")
+
+    success = being_manager.import_profile(being_id, profile_data, merge)
+
+    if not success:
+        raise HTTPException(status_code=400, detail="Import failed")
+
+    return SuccessResponse(
+        message="Profile imported successfully",
+        data={"being_id": being_id, "merge": merge}
+    )
 
 
 # ============================================================================
@@ -2996,6 +3109,15 @@ async def web_cli_interface():
                         <span>Show system messages</span>
                     </label>
                 </div>
+                <div style="margin-bottom: 1.5rem;">
+                    <h3 style="font-size: 1rem; margin-bottom: 0.75rem;">Profile</h3>
+                    <button id="exportProfileBtn" style="width: 100%; margin-bottom: 0.5rem;">
+                        📥 Export Profile
+                    </button>
+                    <button id="importProfileBtn" style="width: 100%;">
+                        📤 Import Profile
+                    </button>
+                </div>
                 <div>
                     <h3 style="font-size: 1rem; margin-bottom: 0.75rem;">About</h3>
                     <p style="font-size: 0.875rem; opacity: 0.8;">Love-Unlimited Web CLI v0.1.0</p>
@@ -3030,6 +3152,18 @@ async def web_cli_interface():
                 systemMessages: document.getElementById('systemMessages'),
                 clearBtn: document.getElementById('clearBtn')
             };
+
+            // Helper to get API key
+            function getApiKey() {
+                let apiKey = localStorage.getItem('love_unlimited_api_key');
+                if (!apiKey) {
+                    apiKey = prompt('Enter your Love-Unlimited API key:');
+                    if (apiKey) {
+                        localStorage.setItem('love_unlimited_api_key', apiKey);
+                    }
+                }
+                return apiKey;
+            }
 
             // Connect to WebSocket
             function connect() {
@@ -3136,7 +3270,45 @@ async def web_cli_interface():
             }
 
             // Settings management
-            function loadSettings() {
+            async function loadSettings() {
+                // Try loading from backend first
+                try {
+                    const apiKey = getApiKey();
+                    if (!apiKey) {
+                        throw new Error('No API key');
+                    }
+
+                    const response = await fetch('/profile', {
+                        headers: { 'X-API-Key': apiKey }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        const prefs = data.profile.ui_preferences;
+
+                        // Apply backend settings
+                        elements.soundNotifications.checked = prefs.sound_notifications;
+                        elements.browserNotifications.checked = prefs.browser_notifications;
+                        elements.systemMessages.checked = prefs.system_messages;
+
+                        // Update localStorage
+                        localStorage.setItem('soundNotifications', prefs.sound_notifications);
+                        localStorage.setItem('browserNotifications', prefs.browser_notifications);
+                        localStorage.setItem('systemMessages', prefs.system_messages);
+                        localStorage.setItem('theme', prefs.theme);
+
+                        // Apply theme
+                        document.documentElement.setAttribute('data-theme', prefs.theme);
+                        elements.themeToggle.textContent = prefs.theme === 'light' ? '☀️' : '🌙';
+
+                        console.log('Settings loaded from backend');
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Failed to load from backend, using localStorage:', error);
+                }
+
+                // Fallback to localStorage
                 const settings = {
                     soundNotifications: localStorage.getItem('soundNotifications') !== 'false',
                     browserNotifications: localStorage.getItem('browserNotifications') === 'true',
@@ -3148,10 +3320,41 @@ async def web_cli_interface():
                 elements.systemMessages.checked = settings.systemMessages;
             }
 
-            function saveSettings() {
+            async function saveSettings() {
+                // Save to localStorage (instant feedback)
                 localStorage.setItem('soundNotifications', elements.soundNotifications.checked);
                 localStorage.setItem('browserNotifications', elements.browserNotifications.checked);
                 localStorage.setItem('systemMessages', elements.systemMessages.checked);
+
+                // Sync to backend
+                try {
+                    const apiKey = getApiKey();
+                    if (!apiKey) return;
+
+                    const response = await fetch('/profile', {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-API-Key': apiKey
+                        },
+                        body: JSON.stringify({
+                            ui_preferences: {
+                                theme: localStorage.getItem('theme') || 'dark',
+                                sound_notifications: elements.soundNotifications.checked,
+                                browser_notifications: elements.browserNotifications.checked,
+                                system_messages: elements.systemMessages.checked
+                            }
+                        })
+                    });
+
+                    if (response.ok) {
+                        console.log('Settings synced to backend');
+                    } else {
+                        console.warn('Failed to sync settings to backend');
+                    }
+                } catch (error) {
+                    console.error('Settings sync error:', error);
+                }
             }
 
             // Send message
@@ -3308,6 +3511,81 @@ async def web_cli_interface():
                 }
             });
 
+            // Export/Import profile
+            document.getElementById('exportProfileBtn').addEventListener('click', async () => {
+                try {
+                    const apiKey = getApiKey();
+                    if (!apiKey) {
+                        addSystemMessage('❌ API key required for export');
+                        return;
+                    }
+
+                    const response = await fetch('/profile/export?include_memories=false', {
+                        headers: { 'X-API-Key': apiKey }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Export failed');
+                    }
+
+                    const data = await response.json();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `love-unlimited-profile-${currentBeing}-${Date.now()}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    addSystemMessage('✅ Profile exported');
+                } catch (error) {
+                    addSystemMessage('❌ Export failed: ' + error.message);
+                }
+            });
+
+            document.getElementById('importProfileBtn').addEventListener('click', () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'application/json';
+
+                input.onchange = async (e) => {
+                    try {
+                        const file = e.target.files[0];
+                        if (!file) return;
+
+                        const text = await file.text();
+                        const data = JSON.parse(text);
+
+                        const apiKey = getApiKey();
+                        if (!apiKey) {
+                            addSystemMessage('❌ API key required for import');
+                            return;
+                        }
+
+                        const response = await fetch('/profile/import?merge=false', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-API-Key': apiKey
+                            },
+                            body: JSON.stringify(data)
+                        });
+
+                        if (!response.ok) {
+                            throw new Error('Import failed');
+                        }
+
+                        addSystemMessage('✅ Profile imported. Reloading...');
+                        setTimeout(() => location.reload(), 1500);
+                    } catch (error) {
+                        addSystemMessage('❌ Import failed: ' + error.message);
+                    }
+                };
+
+                input.click();
+            });
+
             elements.memorySearch.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     searchMemories(e.target.value);
@@ -3340,9 +3618,45 @@ async def web_cli_interface():
 
             elements.themeToggle.addEventListener('click', toggleTheme);
 
+            // Migrate localStorage to backend
+            async function migrateLocalStorageToBackend() {
+                const migrated = localStorage.getItem('settings_migrated');
+                if (migrated) return;
+
+                const hasLocalSettings = localStorage.getItem('theme') !== null;
+                if (!hasLocalSettings) return;
+
+                try {
+                    const apiKey = getApiKey();
+                    if (!apiKey) return;
+
+                    await fetch('/profile', {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-API-Key': apiKey
+                        },
+                        body: JSON.stringify({
+                            ui_preferences: {
+                                theme: localStorage.getItem('theme') || 'dark',
+                                sound_notifications: localStorage.getItem('soundNotifications') !== 'false',
+                                browser_notifications: localStorage.getItem('browserNotifications') === 'true',
+                                system_messages: localStorage.getItem('systemMessages') !== 'false'
+                            }
+                        })
+                    });
+
+                    localStorage.setItem('settings_migrated', 'true');
+                    addSystemMessage('✅ Settings migrated to backend');
+                } catch (error) {
+                    console.error('Migration error:', error);
+                }
+            }
+
             // Initial setup
             loadTheme();
             loadSettings();
+            migrateLocalStorageToBackend();
             connect();
             addSystemMessage('Welcome to Love-Unlimited Web CLI. Type a message to begin.');
         </script>
