@@ -12,15 +12,16 @@ from typing import Optional, List, Dict, Any
 
 import aiohttp
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 
 from hub.config import get_config
 from hub.auth import verify_api_key, get_auth_manager, get_external_token_manager
 from memory import LongTermMemory, ShortTermMemory
 from memory.store import MemoryStore
 from memory.sharing import SharingManager
+from memory.media_store import MediaStore
 from beings import BeingManager
 from hub.ai_clients import ai_manager
 from web_browsing_agent import WebBrowsingAgent
@@ -53,6 +54,10 @@ from hub.models import (
     UpdateProfileRequest,
     FavoriteMemoryRequest,
     BookmarkConversationRequest,
+    MediaType,
+    MediaAttachment,
+    UploadMediaRequest,
+    MediaSearchQuery,
 )
 
 # ============================================================================
@@ -84,6 +89,7 @@ short_term_memory: Optional[ShortTermMemory] = None
 being_manager: Optional[BeingManager] = None
 memory_store: Optional[MemoryStore] = None
 sharing_manager: Optional[SharingManager] = None
+media_store: Optional[MediaStore] = None
 
 # WebRTC
 peer_connections: Dict[str, RTCPeerConnection] = {}
@@ -131,7 +137,7 @@ if cors_config.get("enabled", True):
 @app.on_event("startup")
 async def startup_event():
     """Initialize hub on startup."""
-    global long_term_memory, short_term_memory, being_manager, memory_store, sharing_manager
+    global long_term_memory, short_term_memory, being_manager, memory_store, sharing_manager, media_store
 
     logger.info("=" * 70)
     logger.info("Love-Unlimited Hub - Starting")
@@ -165,6 +171,10 @@ async def startup_event():
 
     sharing_manager = SharingManager(memory_store=memory_store)
     logger.info("Memory Bridge initialized (Storage + Sharing)")
+
+    # Initialize media store
+    media_store = MediaStore(data_dir="./data")
+    logger.info("MediaStore initialized (Multimodal support)")
 
     short_term_memory = ShortTermMemory(
         session_ttl=config.memory_short_term.session_ttl,
@@ -2137,6 +2147,304 @@ async def ai_gateway(
             status_code=500,
             detail=f"Gateway processing failed: {str(e)}"
         )
+
+
+# ============================================================================
+# Media Endpoints
+# ============================================================================
+
+@app.post("/media/upload", response_model=dict)
+async def upload_media(
+    file: UploadFile = File(...),
+    media_type: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+    linked_memory_id: Optional[str] = Form(None),
+    private: bool = Form(False),
+    being_id: str = Depends(verify_api_key)
+):
+    """
+    Upload media file (image, code, audio, or document).
+
+    Args:
+        file: File to upload
+        media_type: Type of media (auto-detected if not provided)
+        description: Optional description
+        tags: Comma-separated tags
+        linked_memory_id: Optional memory to link to
+        private: Whether media is private
+        being_id: Authenticated being ID
+
+    Returns:
+        Attachment metadata
+    """
+    try:
+        # Read file content
+        content = await file.read()
+
+        # Parse tags
+        tag_list = [t.strip() for t in tags.split(",")] if tags else []
+
+        # Store media
+        result = await media_store.store_media(
+            being_id=being_id,
+            file_content=content,
+            filename=file.filename,
+            media_type=media_type,
+            description=description,
+            tags=tag_list,
+            linked_memory_id=linked_memory_id,
+            private=private
+        )
+
+        logger.info(f"Media uploaded: {result['attachment_id']} by {being_id}")
+        return result
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error uploading media: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Media upload failed")
+
+
+@app.get("/media/{attachment_id}")
+async def get_media(
+    attachment_id: str,
+    being_id: str = Depends(verify_api_key)
+):
+    """
+    Get media file by attachment ID.
+
+    Args:
+        attachment_id: Attachment ID
+        being_id: Authenticated being ID
+
+    Returns:
+        File response with media content
+    """
+    try:
+        # Get metadata to verify access
+        metadata = media_store.get_metadata(attachment_id, being_id)
+
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Media not found")
+
+        # Check access (owner or shared_with)
+        is_owner = metadata.get('being_id') == being_id
+        shared_with = metadata.get('shared_with', '').split(',')
+        is_shared = being_id in shared_with
+        is_public = metadata.get('private') == 'False'
+
+        if not (is_owner or is_shared or is_public):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Get file path
+        file_path = media_store.get_media_path(attachment_id, metadata.get('being_id'))
+
+        if not file_path or not file_path.exists():
+            raise HTTPException(status_code=404, detail="Media file not found")
+
+        # Return file
+        return FileResponse(
+            path=str(file_path),
+            media_type=metadata.get('mime_type', 'application/octet-stream'),
+            filename=metadata.get('filename')
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting media: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve media")
+
+
+@app.get("/media/{attachment_id}/thumbnail")
+async def get_thumbnail(
+    attachment_id: str,
+    being_id: str = Depends(verify_api_key)
+):
+    """
+    Get thumbnail for an image attachment.
+
+    Args:
+        attachment_id: Attachment ID
+        being_id: Authenticated being ID
+
+    Returns:
+        Thumbnail image file
+    """
+    try:
+        # Get metadata
+        metadata = media_store.get_metadata(attachment_id, being_id)
+
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Media not found")
+
+        # Check if it's an image
+        if metadata.get('media_type') != 'image':
+            raise HTTPException(status_code=400, detail="Thumbnails only available for images")
+
+        # Check access
+        is_owner = metadata.get('being_id') == being_id
+        shared_with = metadata.get('shared_with', '').split(',')
+        is_shared = being_id in shared_with
+        is_public = metadata.get('private') == 'False'
+
+        if not (is_owner or is_shared or is_public):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Get thumbnail path
+        thumbnail_path = metadata.get('thumbnail_path')
+        if not thumbnail_path:
+            raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+        full_path = Path("./data/media") / thumbnail_path
+
+        if not full_path.exists():
+            raise HTTPException(status_code=404, detail="Thumbnail file not found")
+
+        # Return thumbnail
+        return FileResponse(
+            path=str(full_path),
+            media_type='image/jpeg',
+            filename=f"{attachment_id}_thumb.jpg"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting thumbnail: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve thumbnail")
+
+
+@app.get("/media/search", response_model=dict)
+async def search_media(
+    q: Optional[str] = Query(None, description="Search query"),
+    media_type: Optional[str] = Query(None, description="Filter by media type"),
+    tags: Optional[str] = Query(None, description="Filter by tags (comma-separated)"),
+    limit: int = Query(20, ge=1, le=100),
+    include_shared: bool = Query(True),
+    being_id: str = Depends(verify_api_key)
+):
+    """
+    Search media with semantic search.
+
+    Args:
+        q: Search query
+        media_type: Filter by media type
+        tags: Filter by tags
+        limit: Maximum results
+        include_shared: Include shared media
+        being_id: Authenticated being ID
+
+    Returns:
+        List of matching media attachments
+    """
+    try:
+        # Parse tags
+        tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+        # Search media
+        results = media_store.search_media(
+            being_id=being_id,
+            query=q,
+            media_type=media_type,
+            tags=tag_list,
+            limit=limit,
+            include_shared=include_shared
+        )
+
+        logger.info(f"Media search: {being_id} | Query: {q} | Results: {len(results)}")
+
+        return {
+            "success": True,
+            "count": len(results),
+            "attachments": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error searching media: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Media search failed")
+
+
+@app.delete("/media/{attachment_id}")
+async def delete_media(
+    attachment_id: str,
+    being_id: str = Depends(verify_api_key)
+):
+    """
+    Delete media attachment (owner only).
+
+    Args:
+        attachment_id: Attachment ID
+        being_id: Authenticated being ID
+
+    Returns:
+        Success response
+    """
+    try:
+        # Delete media
+        success = media_store.delete_media(attachment_id, being_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Media not found or access denied")
+
+        logger.info(f"Media deleted: {attachment_id} by {being_id}")
+
+        return {
+            "success": True,
+            "message": "Media deleted successfully",
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting media: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete media")
+
+
+@app.post("/media/{attachment_id}/share")
+async def share_media(
+    attachment_id: str,
+    request: ShareRequest,
+    being_id: str = Depends(verify_api_key)
+):
+    """
+    Share media with other beings (owner only).
+
+    Args:
+        attachment_id: Attachment ID
+        request: Share request with target beings
+        being_id: Authenticated being ID
+
+    Returns:
+        Success response
+    """
+    try:
+        # Share media
+        success = media_store.share_media(
+            attachment_id=attachment_id,
+            being_id=being_id,
+            target_beings=request.share_with
+        )
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Media not found or access denied")
+
+        logger.info(f"Media shared: {attachment_id} by {being_id} with {request.share_with}")
+
+        return {
+            "success": True,
+            "message": f"Media shared with {len(request.share_with)} being(s)",
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sharing media: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to share media")
 
 
 # ============================================================================

@@ -344,3 +344,57 @@ class BookmarkConversationRequest(BaseModel):
     """Bookmark a conversation."""
     title: str
     memory_ids: List[str]
+
+
+# ============================================================================
+# Media Models
+# ============================================================================
+
+class MediaType(str, Enum):
+    """Type of media attachment."""
+    IMAGE = "image"
+    CODE = "code"
+    AUDIO = "audio"
+    DOCUMENT = "document"
+
+
+class MediaAttachment(BaseModel):
+    """Media attachment metadata."""
+    attachment_id: str
+    being_id: str
+    media_type: MediaType
+    file_path: str
+    filename: str
+    mime_type: str
+    file_size: int
+    dimensions: Optional[Dict[str, int]] = None  # {width, height}
+    duration: Optional[float] = None  # seconds
+    language: Optional[str] = None  # for code
+    page_count: Optional[int] = None  # for documents
+    transcription: Optional[str] = None  # for audio
+    extracted_text: Optional[str] = None  # for documents
+    thumbnail_path: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    description: Optional[str] = None
+    linked_memory_id: Optional[str] = None
+    shared_with: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.now)
+    private: bool = False
+
+
+class UploadMediaRequest(BaseModel):
+    """Request model for media upload."""
+    description: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    linked_memory_id: Optional[str] = None
+    private: bool = False
+
+
+class MediaSearchQuery(BaseModel):
+    """Query model for searching media."""
+    query: Optional[str] = None
+    media_type: Optional[MediaType] = None
+    tags: Optional[List[str]] = None
+    since: Optional[datetime] = None
+    limit: int = 20
+    include_shared: bool = True
