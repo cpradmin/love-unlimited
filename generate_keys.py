@@ -26,6 +26,7 @@ def main():
         ("grok", "Grok"),
         ("swarm", "Micro-AI-Swarm"),
         ("dream_team", "AI Dream Team"),
+        ("ara", "Ara"),
     ]
 
     generated_keys = {}

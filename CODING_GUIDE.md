@@ -79,7 +79,30 @@ code = response.json()["content"]
 print(code)
 ```
 
-### Method 3: Collaborative Coding
+### Method 3: Grok CLI Component (Advanced)
+
+For advanced coding with AI tools and teaming:
+
+```bash
+python3 love_cli.py
+# Then in CLI:
+> /grok  # Launch Grok CLI component
+grok> /team  # Enable team mode (Grok + Claude collaboration)
+grok> view file my_code.py  # Natural language file operations
+grok> create file new_feature.py with content class NewFeature: pass
+grok> run python -m pytest  # Execute commands
+grok> search def test_  # Search codebase
+grok> @claude Review this function  # Relay to Claude
+```
+
+**Grok CLI Features:**
+- **Natural Language Commands**: "view file", "create file", "run command", "search code"
+- **Teaming Modes**: `/as grok`, `/as claude`, `/team` for different collaboration styles
+- **Context Awareness**: Accesses hub memories for relevant coding context
+- **File Operations**: AI-powered editing with `str_replace_editor`, directory listing
+- **System Integration**: Restricted bash/python execution with mode-based permissions
+
+### Method 4: Collaborative Coding
 
 Use different AIs for different parts:
 

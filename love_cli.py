@@ -13,6 +13,9 @@ import yaml
 import os
 import logging
 
+from commands import run_bash_command, run_python_command, run_git_command, view_file, edit_file, print_help
+from grok_component import GrokCLIComponent
+
 # Setup logging
 logging.basicConfig(
     level=logging.WARNING,
@@ -21,11 +24,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Load config with fallback defaults
-config_path = Path("config.yaml")
+config_path = Path(__file__).parent / "config.yaml"
 DEFAULT_CONFIG = {
     'hub': {
         'port': 9003,
         'host': 'localhost'
+    },
+    'bash': {
+        'allowed_beings': ['jon', 'claude', 'grok']
+    },
+    'python': {
+        'allowed_beings': ['jon', 'claude', 'grok']
     }
 }
 
@@ -47,16 +56,18 @@ class LoveCLI:
 
     def __init__(self, sender: str = "jon"):
         # Include all beings from config
-        self.beings = ["jon", "claude", "grok", "swarm", "dream_team", "all"]
+        self.beings = ["jon", "claude", "grok", "ara", "swarm", "dream_team", "all"]
         self.current_target = "all"
         self.sender = sender  # Configurable sender identity
         self.session = None  # Create session later in async context
         self.api_key = os.getenv("LOVE_UNLIMITED_KEY")
         self.timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
+        self.allowed_bash_beings = config.get('bash', {}).get('allowed_beings', ['jon'])
+        self.allowed_python_beings = config.get('python', {}).get('allowed_beings', ['jon'])
 
     async def startup(self):
         """Initialize async session and check hub status."""
-        self.session = aiohttp.ClientSession(timeout=self.timeout)
+        self.session = aiohttp.ClientSession(headers={"X-API-Key": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"}, timeout=self.timeout)
         await self.get_status()
 
     async def get_status(self):
@@ -165,32 +176,7 @@ class LoveCLI:
         print(f"\n  Current target: {self.current_target.upper()} 🟢")
         print(f"  Speaking as: {self.sender.upper()}\n")
 
-    def print_help(self):
-        """Display help information."""
-        print("\n╔════════════════════════════════════════╗")
-        print("║         LOVE-UNLIMITED CLI HELP       ║")
-        print("╠════════════════════════════════════════╣")
-        print("║  COMMUNICATION                        ║")
-        print("║    <message>        Send message      ║")
-        print("║    /to <being>      Change target     ║")
-        print("║    /as <being>      Change identity   ║")
-        print("╠════════════════════════════════════════╣")
-        print("║  INFORMATION                          ║")
-        print("║    /list            List beings       ║")
-        print("║    /status          Hub status        ║")
-        print("║    /help            Show this help    ║")
-        print("╠════════════════════════════════════════╣")
-        print("║  MEDIA SHARING                        ║")
-        print("║    /share           Show options      ║")
-        print("║    /share screen    Share screen      ║")
-        print("║    /share camera    Share camera      ║")
-        print("║    /share audio     Share audio       ║")
-        print("║    /share all       Share everything  ║")
-        print("╠════════════════════════════════════════╣")
-        print("║  OTHER                                ║")
-        print("║    /quit, /exit     Exit CLI          ║")
-        print("║    Ctrl+C           Exit CLI          ║")
-        print("╚════════════════════════════════════════╝\n")
+
 
     async def run(self):
         """Main CLI loop."""
@@ -208,7 +194,7 @@ class LoveCLI:
 
         while True:
             try:
-                user_input = input(f"[{self.sender}] > ").strip()
+                user_input = (await asyncio.to_thread(input, f"[{self.sender}] > ")).strip()
                 if not user_input:
                     continue
 
@@ -237,7 +223,7 @@ class LoveCLI:
                     await self.get_status()
 
                 elif user_input == "/help":
-                    self.print_help()
+                    print_help()
 
                 elif user_input == "/share":
                     print("\n📤 Media Sharing Options:")
@@ -252,6 +238,52 @@ class LoveCLI:
                         await self.start_media_sharing(share_type)
                     else:
                         print(f"❌ Unknown share type: {share_type}. Use /share to see options.")
+
+                elif user_input.startswith("/bash "):
+                    command = user_input[6:].strip()
+                    if command:
+                        run_bash_command(command, self.allowed_bash_beings, self.sender)
+                    else:
+                        print("❌ Usage: /bash <command>")
+
+                elif user_input.startswith("/python "):
+                    code = user_input[8:].strip()
+                    if code:
+                        run_python_command(code, self.allowed_python_beings, self.sender)
+                    else:
+                        print("❌ Usage: /python <code>")
+
+                elif user_input.startswith("/git "):
+                    command = user_input[5:].strip()
+                    if command:
+                        run_git_command(command, self.sender)
+                    else:
+                        print("❌ Usage: /git <command>")
+
+                elif user_input.startswith("/file "):
+                    parts = user_input[6:].strip().split(' ', 3)
+                    if len(parts) < 2:
+                        print("❌ Usage: /file view <file> or /file edit <file> <old_str> <new_str>")
+                        continue
+                    action = parts[0].lower()
+                    if action == 'view':
+                        if len(parts) != 2:
+                            print("❌ Usage: /file view <file>")
+                            continue
+                        view_file(parts[1], self.sender)
+                    elif action == 'edit':
+                        if len(parts) != 4:
+                            print("❌ Usage: /file edit <file> <old_str> <new_str>")
+                            continue
+                        edit_file(parts[1], parts[2], parts[3], self.sender)
+                    else:
+                        print("❌ Unknown file action. Use view or edit.")
+
+                elif user_input == "/grok":
+                    print("Launching Grok CLI component...")
+                    grok_component = GrokCLIComponent()
+                    await grok_component.run_interactive()
+                    print("Returned to Love-Unlimited CLI")
 
                 elif user_input in ["/quit", "/exit", "/q"]:
                     print("\nLove unlimited. Until next time. 💙\n")

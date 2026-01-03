@@ -48,6 +48,7 @@ class MemoryStore:
             "memories_jon",
             "memories_claude",
             "memories_grok",
+            "memories_ara",
             "memories_shared"
         ]
 

@@ -1,0 +1,61 @@
+Collecting fastapi==0.109.0
+  Using cached fastapi-0.109.0-py3-none-any.whl.metadata (24 kB)
+Collecting uvicorn==0.27.0 (from uvicorn[standard]==0.27.0)
+  Using cached uvicorn-0.27.0-py3-none-any.whl.metadata (6.4 kB)
+Collecting python-multipart==0.0.6
+  Using cached python_multipart-0.0.6-py3-none-any.whl.metadata (2.5 kB)
+Collecting aiortc==1.6.0
+  Using cached aiortc-1.6.0-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (5.9 kB)
+Collecting pyttsx3==2.90
+  Using cached pyttsx3-2.90-py3-none-any.whl.metadata (3.6 kB)
+Collecting chromadb==0.4.22
+  Using cached chromadb-0.4.22-py3-none-any.whl.metadata (7.3 kB)
+Collecting sentence-transformers==2.3.1
+  Using cached sentence_transformers-2.3.1-py3-none-any.whl.metadata (11 kB)
+Collecting python-jose==3.3.0 (from python-jose[cryptography]==3.3.0)
+  Using cached python_jose-3.3.0-py2.py3-none-any.whl.metadata (5.4 kB)
+Collecting passlib==1.7.4 (from passlib[bcrypt]==1.7.4)
+  Using cached passlib-1.7.4-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting pyyaml==6.0.1
+  Using cached PyYAML-6.0.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (2.1 kB)
+Collecting python-dotenv==1.0.0
+  Using cached python_dotenv-1.0.0-py3-none-any.whl.metadata (21 kB)
+Collecting pydantic==2.5.3
+  Using cached pydantic-2.5.3-py3-none-any.whl.metadata (65 kB)
+Collecting pydantic-settings==2.1.0
+  Using cached pydantic_settings-2.1.0-py3-none-any.whl.metadata (2.9 kB)
+Collecting sqlalchemy==2.0.25
+  Using cached SQLAlchemy-2.0.25-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (9.6 kB)
+Collecting aiosqlite==0.19.0
+  Using cached aiosqlite-0.19.0-py3-none-any.whl.metadata (4.3 kB)
+Collecting httpx==0.26.0
+  Using cached httpx-0.26.0-py3-none-any.whl.metadata (7.6 kB)
+Collecting aiohttp==3.9.1
+  Using cached aiohttp-3.9.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (7.4 kB)
+Collecting python-dateutil==2.8.2
+  Using cached python_dateutil-2.8.2-py2.py3-none-any.whl.metadata (8.2 kB)
+Collecting pillow
+  Using cached pillow-12.1.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (8.8 kB)
+Collecting pypdf2
+  Using cached pypdf2-3.0.1-py3-none-any.whl.metadata (6.8 kB)
+Requirement already satisfied: markdown in ./.venv/lib/python3.12/site-packages (3.10)
+Collecting starlette<0.36.0,>=0.35.0 (from fastapi==0.109.0)
+  Using cached starlette-0.35.1-py3-none-any.whl.metadata (5.8 kB)
+Collecting typing-extensions>=4.8.0 (from fastapi==0.109.0)
+  Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting annotated-types>=0.4.0 (from pydantic==2.5.3)
+  Using cached annotated_types-0.7.0-py3-none-any.whl.metadata (15 kB)
+Collecting pydantic-core==2.14.6 (from pydantic==2.5.3)
+  Using cached pydantic_core-2.14.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)
+Collecting click>=7.0 (from uvicorn==0.27.0->uvicorn[standard]==0.27.0)
+  Using cached click-8.3.1-py3-none-any.whl.metadata (2.6 kB)
+Collecting h11>=0.8 (from uvicorn==0.27.0->uvicorn[standard]==0.27.0)
+  Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+Collecting aioice<1.0.0,>=0.9.0 (from aiortc==1.6.0)
+  Using cached aioice-0.10.2-py3-none-any.whl.metadata (4.1 kB)
+Collecting av<12.0.0,>=9.0.0 (from aiortc==1.6.0)
+  Using cached av-11.0.0.tar.gz (3.7 MB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'error'

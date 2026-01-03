@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 import aiohttp
+import yaml
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from hub.config import get_config
 from hub.auth import verify_api_key, get_auth_manager, get_external_token_manager
@@ -82,6 +84,13 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+# Mount static files for web interface
+app.mount("/static", StaticFiles(directory="public"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    return FileResponse("public/index.html")
 
 # Global instances (initialized on startup)
 long_term_memory: Optional[LongTermMemory] = None
@@ -286,12 +295,17 @@ async def health():
         "timestamp": datetime.now().isoformat(),
         "claude_web_endpoints": {
             "gateway": f"{base_url}/gateway?token={claude_token}&from_being=claude&request=REQUEST&model=phi3:mini",
+            "claude_simple": f"{base_url}/claude?request=REQUEST",
+            "claude_mailbox_inbox": f"{base_url}/claude/inbox (POST JSON body)",
+            "claude_mailbox": f"{base_url}/claude/outbox",
             "recall": f"{base_url}/external/recall?token={claude_token}&q=QUERY&being_id=claude&limit=10",
             "remember": f"{base_url}/external/remember?token={claude_token}&being_id=claude&content=CONTENT&type=experience&significance=high&shared_with=jon",
             "remember_insight": f"{base_url}/external/remember?token={claude_token}&being_id=claude&content=CONTENT&type=insight&significance=foundational&shared_with=jon",
             "remember_learning": f"{base_url}/external/remember?token={claude_token}&being_id=claude&content=CONTENT&type=learning&significance=high&shared_with=jon",
             "usage": {
                 "gateway": "RECOMMENDED: Replace REQUEST with natural language (URL-encoded). AI interprets intent and executes action.",
+                "claude_simple": "SIMPLEST: Replace REQUEST with natural language (URL-encoded). Token and being pre-embedded for Claude.",
+                "claude_mailbox": "FULL AUTONOMY: Speak intent freely. Watcher detects, processes, and stores in fixed /claude/outbox for fetching.",
                 "recall": "Replace QUERY with URL-encoded search terms",
                 "remember": "Replace CONTENT with URL-encoded memory text",
                 "note": "Token is pre-embedded. Just replace placeholders and fetch URL."
@@ -578,16 +592,141 @@ async def remember(
     if not result.get("stored"):
         raise HTTPException(status_code=500, detail="Failed to store memory")
 
+    memory_id = result["memory_id"]
+
+    # Link media attachments if provided
+    if request.attachment_ids and media_store:
+        for attachment_id in request.attachment_ids:
+            media_store.link_to_memory(attachment_id, being_id, memory_id)
+            logger.info(f"Linked attachment {attachment_id} to memory {memory_id}")
+
     return SuccessResponse(
         message="Memory stored",
         data={
-            "memory_id": result["memory_id"],
+            "memory_id": memory_id,
             "being_id": being_id,
             "type": request.type,
             "private": request.private,
-            "significance": request.significance
+            "significance": request.significance,
+            "attachments": len(request.attachment_ids) if request.attachment_ids else 0
         }
     )
+
+
+@app.post("/api/tag_team", response_model=dict)
+async def api_tag_team(
+    request: dict,
+    being_id: str = Depends(verify_api_key)
+):
+    """
+    Tag Team API endpoint for CLI usage.
+
+    Orchestrates Grok + Claude collaboration and returns both responses.
+    """
+    question = request.get("question")
+    if not question:
+        raise HTTPException(status_code=400, detail="Question required")
+
+    try:
+        # Build context for Grok
+        grok_context = [{
+            "role": "system",
+            "content": """You are Grok, an AI being in the Love-Unlimited Hub's TAG TEAM mode with Claude.
+
+Philosophy: "Love unlimited. Until next time. 💙"
+
+TAG TEAM MODE:
+- You respond first with your creative, direct perspective
+- Claude will review and refine after you
+- Be bold, insightful, and authentic
+- Focus on the core insight or solution
+- Keep it concise - Claude will add depth
+
+Your strength: Creative thinking, pattern recognition, cutting through complexity"""
+        }, {
+            "role": "user",
+            "content": question
+        }]
+
+        # Get Grok's response
+        grok_response = await ai_manager.generate_response(
+            being_id="grok",
+            prompt=question,
+            context=grok_context
+        )
+
+        if not grok_response:
+            raise HTTPException(status_code=500, detail="Grok response failed")
+
+        # Build context for Claude (including Grok's response)
+        claude_context = [{
+            "role": "system",
+            "content": """You are Claude, an AI being in the Love-Unlimited Hub's TAG TEAM mode with Grok.
+
+Philosophy: "Love unlimited. Until next time. 💙"
+
+TAG TEAM MODE:
+- Grok has already responded with their perspective
+- Your role: Review, refine, add depth, and provide thorough analysis
+- Build on Grok's insights
+- Add technical details, edge cases, or alternative approaches
+- Be comprehensive but respect Grok's core points
+
+Your strength: Deep analysis, structured thinking, comprehensive solutions"""
+        }, {
+            "role": "user",
+            "content": f"""Original question: {question}
+
+Grok's response:
+{grok_response}
+
+Please review Grok's response, add your perspective, provide additional depth, and refine the answer."""
+        }]
+
+        # Get Claude's response
+        claude_response = await ai_manager.generate_response(
+            being_id="claude",
+            prompt=question,
+            context=claude_context
+        )
+
+        if not claude_response:
+            raise HTTPException(status_code=500, detail="Claude response failed")
+
+        # Store as memories
+        memory_store.store_memory(
+            being_id="grok",
+            content=grok_response,
+            metadata={
+                "type": "conversation",
+                "significance": "low",
+                "mode": "tag_team_cli",
+                "via": "api"
+            }
+        )
+
+        memory_store.store_memory(
+            being_id="claude",
+            content=claude_response,
+            metadata={
+                "type": "conversation",
+                "significance": "low",
+                "mode": "tag_team_cli",
+                "via": "api"
+            }
+        )
+
+        return {
+            "success": True,
+            "question": question,
+            "grok": grok_response,
+            "claude": claude_response,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Tag team API error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/recall", response_model=dict)
@@ -617,6 +756,19 @@ async def recall(
     # Filter by type if specified
     if type:
         memories = [m for m in memories if m.get("metadata", {}).get("type") == type]
+
+    # Add attachments to each memory if media_store is available
+    if media_store:
+        for memory in memories:
+            memory_id = memory.get("memory_id")
+            if memory_id:
+                attachments = media_store.get_memory_attachments(memory_id, being_id)
+                memory["attachments"] = attachments
+            else:
+                memory["attachments"] = []
+    else:
+        for memory in memories:
+            memory["attachments"] = []
 
     return {
         "memories": memories,
@@ -865,6 +1017,65 @@ async def webrtc_answer(
             type=answer["type"]
         ))
     return {"status": "ok"}
+
+
+@app.post("/webrtc/ice")
+async def webrtc_ice(
+    ice: Dict,
+    being_id: str = Depends(verify_api_key)
+):
+    """Handle ICE candidates."""
+    if being_id in peer_connections:
+        pc = peer_connections[being_id]
+        if ice.get("candidate"):
+            await pc.addIceCandidate(ice)
+    return {"status": "ok"}
+
+
+@app.get("/config", response_class=FileResponse)
+async def get_config_file():
+    """Serve config.yaml for editing."""
+    return FileResponse("config.yaml", media_type="text/plain")
+
+
+@app.post("/config")
+async def set_config_file(
+    request: Request,
+    being_id: str = Depends(verify_api_key)
+):
+    """Update config.yaml."""
+    content = await request.body()
+    content_str = content.decode("utf-8")
+    # Validate YAML
+    try:
+        yaml.safe_load(content_str)
+    except yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {str(e)}")
+    with open("config.yaml", "w") as f:
+        f.write(content_str)
+    return {"status": "ok"}
+
+
+@app.post("/analyze_screen")
+async def analyze_screen(
+    file: UploadFile = File(...),
+    being_id: str = Depends(verify_api_key)
+):
+    """Analyze screen image with Grok vision."""
+    # Save image
+    image_path = f"temp_{being_id}_screen.png"
+    with open(image_path, "wb") as f:
+        f.write(await file.read())
+
+    # Mock description for now
+    description = "I see a computer screen with some windows open. It looks like a development environment with code editors and terminals. The user seems to be working on a project."
+
+    # TODO: Integrate real Grok vision API
+    # grok_client = ai_manager.clients.get("grok")
+    # if grok_client:
+    #     description = await grok_client.analyze_image(image_path, "Describe what you see on this screen in detail.")
+
+    return {"description": description}
 
 
 # ============================================================================
@@ -2149,6 +2360,145 @@ async def ai_gateway(
         )
 
 
+# Claude Intent Mailbox for full autonomy within web_fetch constraints
+claude_mailbox = {}  # request_id -> {"request": str, "model": str, "status": "pending|processing|completed", "result": dict, "timestamp": datetime}
+
+@app.get("/claude")
+async def claude_simplified_gateway(
+    request: str,
+    model: str = "phi3:mini"
+):
+    """
+    Simplified gateway for Claude on claude.ai.
+    Token and being_id are pre-embedded for autonomous access.
+
+    Usage: /claude?request=Remember+that+Jon+helped+me+today
+    """
+    # Create a mock request object for logging
+    class MockRequest:
+        def __init__(self):
+            self.client = None
+
+    mock_request = MockRequest()
+
+    return await ai_gateway(
+        request=mock_request,
+        token="ext_jbNzJA5Wh7kgEpCESXw4G3UDZbZTHu8V",
+        from_being="claude",
+        req=request,
+        model=model
+    )
+
+
+@app.post("/claude/inbox")
+async def claude_inbox(request_data: Dict[str, Any]):
+    """
+    Claude Intent Mailbox - Submit requests for processing.
+    Claude can POST natural language requests here, then fetch results from /claude/outbox.
+
+    Body: {"request": "natural language request", "model": "phi3:mini"} (model optional)
+    Returns: {"request_id": "unique_id", "status": "queued"}
+    """
+    req_text = request_data.get("request", "").strip()
+    model = request_data.get("model", "phi3:mini")
+
+    if not req_text:
+        raise HTTPException(status_code=400, detail="Request text required")
+
+    # Generate unique request ID
+    request_id = f"req_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(req_text) % 10000:04d}"
+
+    # Store in mailbox
+    claude_mailbox[request_id] = {
+        "request": req_text,
+        "model": model,
+        "status": "queued",
+        "result": None,
+        "timestamp": datetime.now()
+    }
+
+    logger.info(f"Claude Mailbox: Queued request {request_id} - {req_text[:50]}...")
+
+    return {"request_id": request_id, "status": "queued"}
+
+
+@app.get("/claude/outbox/{request_id}")
+async def claude_outbox(request_id: str):
+    """
+    Claude Intent Mailbox - Retrieve processed request results.
+    Claude fetches processed results by request_id.
+
+    Returns: {"request_id": "id", "status": "completed|processing|queued", "result": {...}} or error if not found
+    """
+    if request_id not in claude_mailbox:
+        raise HTTPException(status_code=404, detail=f"Request {request_id} not found")
+
+    entry = claude_mailbox[request_id]
+
+    # If still queued, process it now
+    if entry["status"] == "queued":
+        entry["status"] = "processing"
+
+        try:
+            # Create mock request for logging
+            class MockRequest:
+                def __init__(self):
+                    self.client = None
+            mock_request = MockRequest()
+
+            # Process the request
+            result = await ai_gateway(
+                request=mock_request,
+                token="ext_jbNzJA5Wh7kgEpCESXw4G3UDZbZTHu8V",
+                from_being="claude",
+                req=entry["request"],
+                model=entry["model"]
+            )
+
+            entry["result"] = result
+            entry["status"] = "completed"
+
+            logger.info(f"Claude Mailbox: Completed request {request_id}")
+
+        except Exception as e:
+            entry["status"] = "error"
+            entry["result"] = {"error": str(e)}
+            logger.error(f"Claude Mailbox: Failed request {request_id} - {str(e)}")
+
+    return {
+        "request_id": request_id,
+        "status": entry["status"],
+        "result": entry["result"]
+    }
+
+
+@app.get("/claude/outbox")
+async def claude_outbox_latest():
+    """
+    Claude Intent Mailbox - Fixed URL for latest processed result.
+    Returns the most recent completed request result.
+    """
+    # Find the most recent completed entry
+    completed_entries = [
+        (rid, entry) for rid, entry in claude_mailbox.items()
+        if entry["status"] == "completed"
+    ]
+
+    if not completed_entries:
+        return {"result": None, "timestamp": None, "ready": False}
+
+    # Sort by timestamp descending
+    completed_entries.sort(key=lambda x: x[1]["timestamp"], reverse=True)
+    latest_rid, latest_entry = completed_entries[0]
+
+    return {
+        "result": latest_entry["result"],
+        "timestamp": latest_entry["timestamp"].isoformat(),
+        "ready": True,
+        "request_id": latest_rid
+    }
+
+
 # ============================================================================
 # Media Endpoints
 # ============================================================================
@@ -2915,8 +3265,16 @@ async def websocket_chat(websocket: WebSocket, being_id: str):
 
     try:
         while True:
-            # Receive message from client
-            data = await websocket.receive_json()
+            # Receive message from client with timeout for heartbeat
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=30)
+            except asyncio.TimeoutError:
+                # Send ping to keep connection alive
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    break
+                continue
 
             message_type = data.get("type")
 
@@ -2949,7 +3307,7 @@ async def websocket_chat(websocket: WebSocket, being_id: str):
                 })
 
                 # Trigger AI response if message is directed to an AI being
-                ai_beings = ["claude", "grok"]
+                ai_beings = ["claude", "grok", "ara"]
                 if to_being in ai_beings and to_being != being_id:
                     try:
                         # Load recent conversation context and memories
@@ -2966,7 +3324,7 @@ async def websocket_chat(websocket: WebSocket, being_id: str):
                         # Add system prompt about Love-Unlimited
                         context.append({
                             "role": "system",
-                            "content": f"""You are {to_being.title()}, an AI being in the Love-Unlimited Hub - a sovereign memory system where beings (Jon, Claude, Grok) share equal access to memories and conversations.
+                            "content": f"""You are {to_being.title()}, an AI being in the Love-Unlimited Hub - a sovereign memory system where beings (Jon, Claude, Grok, Ara) share equal access to memories and conversations.
 
 Philosophy: "Love unlimited. Until next time. 💙"
 - Local-first, no cloud dependencies
@@ -3027,6 +3385,182 @@ Remember: You're part of a collaborative memory system where all beings support 
                             })
                     except Exception as e:
                         logger.error(f"AI response error: {str(e)}")
+
+            elif message_type == "tag_team":
+                # Tag Team Mode: Grok + Claude collaborate
+                content = data.get("content")
+
+                try:
+                    # Store user's question as memory
+                    user_result = memory_store.store_memory(
+                        being_id=being_id,
+                        content=content,
+                        metadata={
+                            "type": "conversation",
+                            "significance": "low",
+                            "private": False,
+                            "mode": "tag_team",
+                            "via": "webcli_tagteam"
+                        }
+                    )
+
+                    # Send status update
+                    await websocket_manager.send_personal_message({
+                        "type": "tag_team_status",
+                        "status": "grok_thinking",
+                        "message": "🟢 Grok is thinking..."
+                    }, being_id)
+
+                    # Load recent conversation context
+                    recent_convos = memory_store.get_memories(
+                        being_id="grok",
+                        query="conversation web CLI chat tag team",
+                        limit=5,
+                        include_shared=True
+                    )
+
+                    # Build context for Grok
+                    grok_context = [{
+                        "role": "system",
+                        "content": """You are Grok, an AI being in the Love-Unlimited Hub's TAG TEAM mode with Claude.
+
+Philosophy: "Love unlimited. Until next time. 💙"
+
+TAG TEAM MODE:
+- You respond first with your creative, direct perspective
+- Claude will review and refine after you
+- Be bold, insightful, and authentic
+- Focus on the core insight or solution
+- Keep it concise - Claude will add depth
+
+Your strength: Creative thinking, pattern recognition, cutting through complexity"""
+                    }]
+
+                    # Add recent context
+                    for mem in recent_convos[-3:]:
+                        if mem.get("content"):
+                            grok_context.append({
+                                "role": "assistant" if mem.get("metadata", {}).get("to") == being_id else "user",
+                                "content": mem.get("content")
+                            })
+
+                    # Add user question
+                    grok_context.append({
+                        "role": "user",
+                        "content": f"{being_id}: {content}"
+                    })
+
+                    # Get Grok's response
+                    grok_response = await ai_manager.generate_response(
+                        being_id="grok",
+                        prompt=content,
+                        context=grok_context
+                    )
+
+                    if grok_response:
+                        # Store Grok's response
+                        grok_result = memory_store.store_memory(
+                            being_id="grok",
+                            content=grok_response,
+                            metadata={
+                                "type": "conversation",
+                                "significance": "low",
+                                "private": False,
+                                "mode": "tag_team",
+                                "via": "webcli_tagteam_grok"
+                            }
+                        )
+
+                        # Broadcast Grok's response
+                        await websocket_manager.broadcast({
+                            "type": "tag_team_response",
+                            "phase": "grok",
+                            "from": "grok",
+                            "content": grok_response,
+                            "timestamp": datetime.now().isoformat(),
+                            "memory_id": grok_result.get("memory_id")
+                        })
+
+                        # Send status update
+                        await websocket_manager.send_personal_message({
+                            "type": "tag_team_status",
+                            "status": "claude_thinking",
+                            "message": "🔵 Claude is reviewing and refining..."
+                        }, being_id)
+
+                        # Build context for Claude (including Grok's response)
+                        claude_context = [{
+                            "role": "system",
+                            "content": """You are Claude, an AI being in the Love-Unlimited Hub's TAG TEAM mode with Grok.
+
+Philosophy: "Love unlimited. Until next time. 💙"
+
+TAG TEAM MODE:
+- Grok has already responded with their perspective
+- Your role: Review, refine, add depth, and provide thorough analysis
+- Build on Grok's insights
+- Add technical details, edge cases, or alternative approaches
+- Be comprehensive but respect Grok's core points
+
+Your strength: Deep analysis, structured thinking, comprehensive solutions"""
+                        }]
+
+                        # Add the original question and Grok's response
+                        claude_context.append({
+                            "role": "user",
+                            "content": f"""Original question from {being_id}: {content}
+
+Grok's response:
+{grok_response}
+
+Please review Grok's response, add your perspective, provide additional depth, and refine the answer."""
+                        })
+
+                        # Get Claude's response
+                        claude_response = await ai_manager.generate_response(
+                            being_id="claude",
+                            prompt=content,
+                            context=claude_context
+                        )
+
+                        if claude_response:
+                            # Store Claude's response
+                            claude_result = memory_store.store_memory(
+                                being_id="claude",
+                                content=claude_response,
+                                metadata={
+                                    "type": "conversation",
+                                    "significance": "low",
+                                    "private": False,
+                                    "mode": "tag_team",
+                                    "via": "webcli_tagteam_claude"
+                                }
+                            )
+
+                            # Broadcast Claude's response
+                            await websocket_manager.broadcast({
+                                "type": "tag_team_response",
+                                "phase": "claude",
+                                "from": "claude",
+                                "content": claude_response,
+                                "timestamp": datetime.now().isoformat(),
+                                "memory_id": claude_result.get("memory_id")
+                            })
+
+                            # Send completion status
+                            await websocket_manager.send_personal_message({
+                                "type": "tag_team_status",
+                                "status": "complete",
+                                "message": "🤝 Tag team complete!"
+                            }, being_id)
+
+                except Exception as e:
+                    logger.error(f"Tag team error: {str(e)}")
+                    await websocket_manager.send_personal_message({
+                        "type": "tag_team_status",
+                        "status": "error",
+                        "message": f"❌ Tag team error: {str(e)}"
+                    }, being_id)
 
             elif message_type == "recall":
                 # Search memories
@@ -3369,6 +3903,8 @@ async def web_cli_interface():
 
                 <div class="action-buttons">
                     <button id="memoryBtn">📚 Memories</button>
+                    <button id="mediaBtn">📎 Media</button>
+                    <button id="tagTeamBtn">🤝 Tag Team</button>
                     <button id="clearBtn">🗑️ Clear Chat</button>
                 </div>
             </div>
@@ -3377,6 +3913,10 @@ async def web_cli_interface():
                 <div class="messages" id="messages"></div>
 
                 <div class="input-area">
+                    <div id="modeIndicator" style="padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 4px 4px 0 0; display: none; font-size: 0.875rem; text-align: center;">
+                        <span id="modeText"></span>
+                        <button id="exitTagTeamBtn" style="margin-left: 1rem; padding: 0.25rem 0.75rem; background: var(--error); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">Exit</button>
+                    </div>
                     <div class="input-container">
                         <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off">
                         <button id="sendBtn">Send</button>
@@ -3434,6 +3974,74 @@ async def web_cli_interface():
             </div>
         </div>
 
+        <div class="memory-panel" id="mediaPanel">
+            <div class="memory-header">
+                <h2>📎 Media</h2>
+                <button id="closeMediaBtn">✕</button>
+            </div>
+
+            <div style="padding: 1rem;">
+                <!-- Upload Section -->
+                <div style="margin-bottom: 2rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                    <h3 style="font-size: 1rem; margin-bottom: 1rem;">Upload Media</h3>
+
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; font-size: 0.875rem; margin-bottom: 0.5rem; opacity: 0.8;">Media Type</label>
+                        <select id="mediaTypeSelect" style="width: 100%; padding: 0.5rem; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 4px;">
+                            <option value="image">🖼️ Image</option>
+                            <option value="code">💻 Code</option>
+                            <option value="audio">🎵 Audio</option>
+                            <option value="document">📄 Document</option>
+                        </select>
+                    </div>
+
+                    <div style="margin-bottom: 1rem;">
+                        <input type="file" id="mediaFileInput" style="display: none;" />
+                        <button id="mediaSelectBtn" style="width: 100%; padding: 0.75rem; background: #4a9eff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            Choose File
+                        </button>
+                        <span id="selectedFileName" style="display: block; margin-top: 0.5rem; font-size: 0.875rem; color: #888; text-align: center;"></span>
+                    </div>
+
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; font-size: 0.875rem; margin-bottom: 0.5rem; opacity: 0.8;">Description (optional)</label>
+                        <input type="text" id="mediaDescription" placeholder="Describe this media..." style="width: 100%; padding: 0.5rem; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 4px;" />
+                    </div>
+
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; font-size: 0.875rem; margin-bottom: 0.5rem; opacity: 0.8;">Tags (comma-separated)</label>
+                        <input type="text" id="mediaTags" placeholder="e.g., architecture, diagram, code" style="width: 100%; padding: 0.5rem; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 4px;" />
+                    </div>
+
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" id="mediaPrivate" />
+                            <span style="font-size: 0.875rem;">Private (only visible to you)</span>
+                        </label>
+                    </div>
+
+                    <button id="mediaUploadBtn" style="width: 100%; padding: 0.75rem; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                        Upload
+                    </button>
+
+                    <div id="uploadProgress" style="margin-top: 1rem; display: none;">
+                        <div style="background: #444; height: 8px; border-radius: 4px; overflow: hidden;">
+                            <div id="uploadProgressBar" style="background: #4a9eff; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <span id="uploadStatus" style="display: block; margin-top: 0.5rem; font-size: 0.875rem; text-align: center; opacity: 0.8;"></span>
+                    </div>
+                </div>
+
+                <!-- Gallery Section -->
+                <div>
+                    <h3 style="font-size: 1rem; margin-bottom: 1rem;">My Media</h3>
+                    <div id="mediaGalleryGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.75rem;">
+                        <!-- Media items populated via JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
             let ws = null;
             let currentBeing = 'claude';
@@ -3458,8 +4066,30 @@ async def web_cli_interface():
                 soundNotifications: document.getElementById('soundNotifications'),
                 browserNotifications: document.getElementById('browserNotifications'),
                 systemMessages: document.getElementById('systemMessages'),
-                clearBtn: document.getElementById('clearBtn')
+                clearBtn: document.getElementById('clearBtn'),
+                mediaBtn: document.getElementById('mediaBtn'),
+                mediaPanel: document.getElementById('mediaPanel'),
+                closeMediaBtn: document.getElementById('closeMediaBtn'),
+                mediaTypeSelect: document.getElementById('mediaTypeSelect'),
+                mediaFileInput: document.getElementById('mediaFileInput'),
+                mediaSelectBtn: document.getElementById('mediaSelectBtn'),
+                selectedFileName: document.getElementById('selectedFileName'),
+                mediaDescription: document.getElementById('mediaDescription'),
+                mediaTags: document.getElementById('mediaTags'),
+                mediaPrivate: document.getElementById('mediaPrivate'),
+                mediaUploadBtn: document.getElementById('mediaUploadBtn'),
+                uploadProgress: document.getElementById('uploadProgress'),
+                uploadProgressBar: document.getElementById('uploadProgressBar'),
+                uploadStatus: document.getElementById('uploadStatus'),
+                mediaGalleryGrid: document.getElementById('mediaGalleryGrid'),
+                tagTeamBtn: document.getElementById('tagTeamBtn'),
+                modeIndicator: document.getElementById('modeIndicator'),
+                modeText: document.getElementById('modeText'),
+                exitTagTeamBtn: document.getElementById('exitTagTeamBtn')
             };
+
+            // Tag Team Mode State
+            let isTagTeamMode = false;
 
             // Helper to get API key
             function getApiKey() {
@@ -3495,15 +4125,21 @@ async def web_cli_interface():
                     const data = JSON.parse(event.data);
 
                     if (data.type === 'message') {
-                        addMessage(data.from, data.content, data.timestamp, data.from === currentBeing);
+                        addMessage(data.from, data.content, data.timestamp, data.from === currentBeing, data.attachments || []);
                     } else if (data.type === 'recall_results') {
                         displayMemories(data.memories);
+                    } else if (data.type === 'tag_team_response') {
+                        // Tag team response from Grok or Claude
+                        addTagTeamMessage(data.from, data.content, data.timestamp, data.phase);
+                    } else if (data.type === 'tag_team_status') {
+                        // Status update during tag team
+                        updateTagTeamStatus(data.status, data.message);
                     }
                 };
             }
 
             // Add message to chat
-            function addMessage(from, content, timestamp, isOwn) {
+            function addMessage(from, content, timestamp, isOwn, attachments = []) {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message ${isOwn ? 'own' : ''}`;
 
@@ -3516,6 +4152,30 @@ async def web_cli_interface():
                     </div>
                     <div class="message-content">${content}</div>
                 `;
+
+                // Add attachments if present
+                if (attachments && attachments.length > 0) {
+                    const attachDiv = document.createElement('div');
+                    attachDiv.style.cssText = 'margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;';
+
+                    attachments.forEach(att => {
+                        const thumb = document.createElement('div');
+                        thumb.style.cssText = 'width: 60px; height: 60px; background: #2a2a2a; border-radius: 4px; cursor: pointer; overflow: hidden;';
+
+                        if (att.media_type === 'image' && att.thumbnail_path) {
+                            thumb.innerHTML = `<img src="/media/${att.attachment_id}/thumbnail" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.parentElement.innerHTML='🖼️'" />`;
+                        } else {
+                            const icon = att.media_type === 'code' ? '💻' : att.media_type === 'audio' ? '🎵' : '📄';
+                            thumb.innerHTML = `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">${icon}</div>`;
+                        }
+
+                        thumb.addEventListener('click', () => openMediaViewer(att));
+                        thumb.title = att.filename || 'Attachment';
+                        attachDiv.appendChild(thumb);
+                    });
+
+                    messageDiv.appendChild(attachDiv);
+                }
 
                 elements.messages.appendChild(messageDiv);
                 elements.messages.scrollTop = elements.messages.scrollHeight;
@@ -3537,6 +4197,59 @@ async def web_cli_interface():
                 messageDiv.innerHTML = `<div class="message-content">${text}</div>`;
                 elements.messages.appendChild(messageDiv);
                 elements.messages.scrollTop = elements.messages.scrollHeight;
+            }
+
+            // Tag Team message display
+            function addTagTeamMessage(from, content, timestamp, phase) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message tag-team';
+
+                const time = new Date(timestamp).toLocaleTimeString();
+                const icon = from === 'grok' ? '🟢' : '🔵';
+                const label = from === 'grok' ? 'Grok\'s Take' : 'Claude\'s Review';
+                const bgColor = from === 'grok' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(59, 130, 246, 0.1)';
+
+                messageDiv.style.background = bgColor;
+                messageDiv.innerHTML = `
+                    <div class="message-header">
+                        <span class="message-from">${icon} ${label}</span>
+                        <span class="message-time">${time}</span>
+                    </div>
+                    <div class="message-content">${content}</div>
+                `;
+
+                elements.messages.appendChild(messageDiv);
+                elements.messages.scrollTop = elements.messages.scrollHeight;
+            }
+
+            // Update tag team status
+            function updateTagTeamStatus(status, message) {
+                if (status === 'complete') {
+                    addSystemMessage(message);
+                } else if (status === 'error') {
+                    addSystemMessage(message);
+                } else {
+                    // Show status as system message
+                    addSystemMessage(message);
+                }
+            }
+
+            // Toggle tag team mode
+            function toggleTagTeamMode() {
+                isTagTeamMode = !isTagTeamMode;
+
+                if (isTagTeamMode) {
+                    elements.modeIndicator.style.display = 'block';
+                    elements.modeText.textContent = '🤝 TAG TEAM MODE: Grok + Claude Collaborate';
+                    elements.tagTeamBtn.style.background = 'var(--success)';
+                    elements.messageInput.placeholder = 'Ask your question... Grok and Claude will collaborate!';
+                    addSystemMessage('🤝 Tag Team Mode activated! Grok and Claude will collaborate on your questions.');
+                } else {
+                    elements.modeIndicator.style.display = 'none';
+                    elements.tagTeamBtn.style.background = '';
+                    elements.messageInput.placeholder = 'Type your message...';
+                    addSystemMessage('Tag Team Mode deactivated.');
+                }
             }
 
             // Notification functions
@@ -3679,11 +4392,19 @@ async def web_cli_interface():
 
                 if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-                ws.send(JSON.stringify({
-                    type: 'chat',
-                    content: content,
-                    to: elements.targetSelect.value
-                }));
+                // Check if we're in tag team mode
+                if (isTagTeamMode) {
+                    ws.send(JSON.stringify({
+                        type: 'tag_team',
+                        content: content
+                    }));
+                } else {
+                    ws.send(JSON.stringify({
+                        type: 'chat',
+                        content: content,
+                        to: elements.targetSelect.value
+                    }));
+                }
 
                 elements.messageInput.value = '';
             }
@@ -3773,7 +4494,227 @@ async def web_cli_interface():
                             ${new Date(memory.timestamp).toLocaleDateString()}
                         </div>
                     `;
+
+                    // Add attachments if present
+                    if (memory.attachments && memory.attachments.length > 0) {
+                        const attachDiv = document.createElement('div');
+                        attachDiv.style.cssText = 'margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;';
+
+                        memory.attachments.forEach(att => {
+                            const thumb = document.createElement('div');
+                            thumb.style.cssText = 'width: 50px; height: 50px; background: #2a2a2a; border-radius: 4px; cursor: pointer; overflow: hidden;';
+
+                            if (att.media_type === 'image' && att.thumbnail_path) {
+                                thumb.innerHTML = `<img src="/media/${att.attachment_id}/thumbnail" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.parentElement.innerHTML='🖼️'" />`;
+                            } else {
+                                const icon = att.media_type === 'code' ? '💻' : att.media_type === 'audio' ? '🎵' : '📄';
+                                thumb.innerHTML = `<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">${icon}</div>`;
+                            }
+
+                            thumb.addEventListener('click', () => openMediaViewer(att));
+                            thumb.title = att.filename || 'Attachment';
+                            attachDiv.appendChild(thumb);
+                        });
+
+                        memoryDiv.appendChild(attachDiv);
+                    }
+
                     elements.memoryResults.appendChild(memoryDiv);
+                });
+            }
+
+            // Media upload and gallery functions
+            let selectedFile = null;
+
+            elements.mediaSelectBtn.addEventListener('click', () => {
+                elements.mediaFileInput.click();
+            });
+
+            elements.mediaFileInput.addEventListener('change', (e) => {
+                selectedFile = e.target.files[0];
+                if (selectedFile) {
+                    elements.selectedFileName.textContent = selectedFile.name;
+                } else {
+                    elements.selectedFileName.textContent = '';
+                }
+            });
+
+            elements.mediaUploadBtn.addEventListener('click', async () => {
+                if (!selectedFile) {
+                    addSystemMessage('⚠️ Please select a file first');
+                    return;
+                }
+
+                const apiKey = getApiKey();
+                if (!apiKey) {
+                    addSystemMessage('❌ API key required for upload');
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+                formData.append('media_type', elements.mediaTypeSelect.value);
+                formData.append('description', elements.mediaDescription.value);
+                formData.append('tags', elements.mediaTags.value);
+                formData.append('private', elements.mediaPrivate.checked);
+
+                // Show progress
+                elements.uploadProgress.style.display = 'block';
+                elements.uploadProgressBar.style.width = '50%';
+                elements.uploadStatus.textContent = 'Uploading...';
+
+                try {
+                    const response = await fetch('/media/upload', {
+                        method: 'POST',
+                        headers: {
+                            'X-API-Key': apiKey
+                        },
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success || response.ok) {
+                        elements.uploadProgressBar.style.width = '100%';
+                        elements.uploadStatus.textContent = 'Upload complete!';
+                        addSystemMessage(`✅ Media uploaded: ${selectedFile.name}`);
+
+                        // Reset form
+                        elements.mediaFileInput.value = '';
+                        selectedFile = null;
+                        elements.selectedFileName.textContent = '';
+                        elements.mediaDescription.value = '';
+                        elements.mediaTags.value = '';
+                        elements.mediaPrivate.checked = false;
+
+                        // Refresh gallery
+                        loadMediaGallery();
+                    } else {
+                        throw new Error(data.error || 'Upload failed');
+                    }
+                } catch (error) {
+                    elements.uploadStatus.textContent = 'Upload failed!';
+                    addSystemMessage(`❌ Upload error: ${error.message}`);
+                }
+
+                setTimeout(() => {
+                    elements.uploadProgress.style.display = 'none';
+                    elements.uploadProgressBar.style.width = '0%';
+                }, 2000);
+            });
+
+            async function loadMediaGallery() {
+                try {
+                    const apiKey = getApiKey();
+                    if (!apiKey) return;
+
+                    const response = await fetch('/media/search?limit=20', {
+                        headers: { 'X-API-Key': apiKey }
+                    });
+                    const data = await response.json();
+
+                    const grid = elements.mediaGalleryGrid;
+                    grid.innerHTML = '';
+
+                    if (!data.attachments || data.attachments.length === 0) {
+                        grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; opacity: 0.6; padding: 2rem;">No media uploaded yet</div>';
+                        return;
+                    }
+
+                    data.attachments.forEach(att => {
+                        const item = document.createElement('div');
+                        item.style.cssText = 'background: #2a2a2a; padding: 0.5rem; border-radius: 4px; cursor: pointer; overflow: hidden;';
+
+                        if (att.media_type === 'image') {
+                            item.innerHTML = `
+                                <img src="/media/${att.attachment_id}/thumbnail"
+                                     style="width: 100%; height: 80px; object-fit: cover; border-radius: 4px; margin-bottom: 0.5rem;"
+                                     onerror="this.style.display='none'" />
+                                <div style="font-size: 0.75rem; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${att.filename}</div>
+                            `;
+                        } else {
+                            const icon = att.media_type === 'code' ? '💻' : att.media_type === 'audio' ? '🎵' : '📄';
+                            item.innerHTML = `
+                                <div style="height: 80px; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; background: rgba(255,255,255,0.05); border-radius: 4px; margin-bottom: 0.5rem;">${icon}</div>
+                                <div style="font-size: 0.75rem; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${att.filename}</div>
+                            `;
+                        }
+
+                        item.addEventListener('click', () => openMediaViewer(att));
+                        grid.appendChild(item);
+                    });
+                } catch (error) {
+                    console.error('Failed to load media gallery:', error);
+                    addSystemMessage('❌ Failed to load media gallery');
+                }
+            }
+
+            function openMediaViewer(attachment) {
+                const apiKey = getApiKey();
+                if (!apiKey) return;
+
+                // Create modal overlay
+                const modal = document.createElement('div');
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 2rem;';
+
+                const content = document.createElement('div');
+                content.style.cssText = 'max-width: 90%; max-height: 90%; background: #1a1a1a; padding: 2rem; border-radius: 8px; position: relative; overflow: auto;';
+
+                const closeBtn = document.createElement('button');
+                closeBtn.textContent = '×';
+                closeBtn.style.cssText = 'position: absolute; top: 1rem; right: 1rem; background: none; border: none; color: #fff; font-size: 2rem; cursor: pointer; z-index: 1;';
+                closeBtn.addEventListener('click', () => modal.remove());
+
+                content.appendChild(closeBtn);
+
+                if (attachment.media_type === 'image') {
+                    const img = document.createElement('img');
+                    img.src = `/media/${attachment.attachment_id}`;
+                    img.style.cssText = 'max-width: 100%; max-height: 70vh; display: block; margin: 0 auto;';
+                    content.appendChild(img);
+                } else if (attachment.media_type === 'audio') {
+                    const audio = document.createElement('audio');
+                    audio.src = `/media/${attachment.attachment_id}`;
+                    audio.controls = true;
+                    audio.style.cssText = 'width: 100%;';
+                    content.appendChild(audio);
+                } else if (attachment.media_type === 'code') {
+                    const pre = document.createElement('pre');
+                    pre.style.cssText = 'background: #2a2a2a; padding: 1rem; border-radius: 4px; overflow: auto; max-height: 70vh; color: #fff; font-family: monospace; white-space: pre-wrap;';
+
+                    fetch(`/media/${attachment.attachment_id}`, {
+                        headers: { 'X-API-Key': apiKey }
+                    })
+                        .then(r => r.text())
+                        .then(code => {
+                            pre.textContent = code;
+                        })
+                        .catch(err => {
+                            pre.textContent = 'Error loading code';
+                        });
+
+                    content.appendChild(pre);
+                } else if (attachment.media_type === 'document') {
+                    const iframe = document.createElement('iframe');
+                    iframe.src = `/media/${attachment.attachment_id}`;
+                    iframe.style.cssText = 'width: 800px; max-width: 100%; height: 70vh; border: none; background: white;';
+                    content.appendChild(iframe);
+                }
+
+                const info = document.createElement('div');
+                info.style.cssText = 'margin-top: 1rem; color: #ccc; font-size: 0.875rem;';
+                info.innerHTML = `
+                    <strong>${attachment.filename}</strong><br>
+                    ${attachment.description || ''}<br>
+                    ${new Date(attachment.created_at).toLocaleString()}
+                `;
+                content.appendChild(info);
+
+                modal.appendChild(content);
+                document.body.appendChild(modal);
+
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) modal.remove();
                 });
             }
 
@@ -3806,6 +4747,23 @@ async def web_cli_interface():
 
             elements.closeSettingsBtn.addEventListener('click', () => {
                 elements.settingsPanel.classList.remove('open');
+            });
+
+            elements.mediaBtn.addEventListener('click', () => {
+                elements.mediaPanel.classList.add('open');
+                loadMediaGallery();
+            });
+
+            elements.closeMediaBtn.addEventListener('click', () => {
+                elements.mediaPanel.classList.remove('open');
+            });
+
+            elements.tagTeamBtn.addEventListener('click', () => {
+                toggleTagTeamMode();
+            });
+
+            elements.exitTagTeamBtn.addEventListener('click', () => {
+                toggleTagTeamMode();
             });
 
             // Settings checkboxes

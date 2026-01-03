@@ -109,3 +109,16 @@ ext_r2I77mwArWbVAcB3qwHZMLNp7fT2FQHN:
   permissions:
   - recall
   rate_limit: 100
+ext_RqhmmuRPQxcKPXHmz2p6dsHvEemAzSCf:
+  allowed_beings:
+  - ara
+  - jon
+  created: '2026-01-01'
+  description: Ara's write access token for full memory operations from external sources
+  enabled: true
+  name: Ara Write Access
+  permissions:
+  - recall
+  - write
+  - share
+  rate_limit: 1000

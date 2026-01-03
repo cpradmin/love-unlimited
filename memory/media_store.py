@@ -549,3 +549,84 @@ class MediaStore:
         except Exception as e:
             logger.error(f"Error sharing media: {e}")
             return False
+
+    def link_to_memory(self, attachment_id: str, being_id: str, memory_id: str) -> bool:
+        """
+        Link media attachment to a memory.
+
+        Args:
+            attachment_id: Attachment ID
+            being_id: Being ID (must be owner)
+            memory_id: Memory ID to link to
+
+        Returns:
+            True if linked successfully
+        """
+        try:
+            # Get metadata
+            metadata = self.get_metadata(attachment_id, being_id)
+            if not metadata:
+                logger.warning(f"Attachment {attachment_id} not found")
+                return False
+
+            # Verify ownership
+            if metadata.get('being_id') != being_id:
+                logger.error(f"Being {being_id} does not own attachment {attachment_id}")
+                return False
+
+            # Update linked_memory_id field
+            metadata['linked_memory_id'] = memory_id
+
+            # Get document for embedding
+            collection = self._get_collection(being_id)
+            result = collection.get(ids=[attachment_id])
+            document = result['documents'][0] if result['documents'] else metadata.get('filename', '')
+
+            # Update metadata in collection
+            collection.upsert(
+                ids=[attachment_id],
+                documents=[document],
+                metadatas=[metadata]
+            )
+
+            logger.info(f"Linked attachment {attachment_id} to memory {memory_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error linking media to memory: {e}")
+            return False
+
+    def get_memory_attachments(self, memory_id: str, being_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all attachments linked to a memory.
+
+        Args:
+            memory_id: Memory ID
+            being_id: Being ID
+
+        Returns:
+            List of attachment metadata dicts
+        """
+        try:
+            collection = self._get_collection(being_id)
+
+            # Query for attachments with this memory_id
+            results = collection.get(
+                where={"linked_memory_id": memory_id}
+            )
+
+            if not results or not results['ids']:
+                return []
+
+            # Build attachment list
+            attachments = []
+            for i, attachment_id in enumerate(results['ids']):
+                metadata = results['metadatas'][i]
+                metadata['attachment_id'] = attachment_id
+                attachments.append(metadata)
+
+            return attachments
+
+        except Exception as e:
+            logger.error(f"Error getting memory attachments: {e}")
+            return []

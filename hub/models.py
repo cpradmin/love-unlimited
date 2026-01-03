@@ -112,6 +112,7 @@ class RememberRequest(BaseModel):
     private: bool = False
     tags: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    attachment_ids: List[str] = Field(default_factory=list)  # Media attachments
 
 
 class RecallQuery(BaseModel):

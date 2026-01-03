@@ -1,8 +1,31 @@
 # Love-Unlimited Changelog
 
+## [0.5.0] - 2026-01-03
+
+### Added
+- **Claude Intent Mailbox**: Full autonomy implementation for Claude AI
+  - Fixed GET URL `/claude/outbox` returning latest processed result
+  - Intent watcher service (`claude_intent_watcher.py`) monitoring conversations
+  - Natural language intent detection and processing
+  - Updated `/health` endpoint with mailbox URL
+  - Permanent Claude instruction added to README
+
+### Changed
+- Updated `/health` claude_mailbox URL to fixed endpoint without request_id
+
 ## [0.4.0] - 2025-12-30
 
 ### Added
+- **Enhanced Bash Access in CLI**: Advanced shell command execution in love_cli.py
+  - Restricted access to authorized beings only
+  - File output saving with `> filename` syntax
+  - Colored output for improved readability
+- **Python Script Execution**: Added `/python <code>` command for executing Python code snippets
+- **Syntax Highlighting**: Integrated Pygments for automatic syntax highlighting of bash command output
+- **Modular Codebase**: Refactored CLI into modular structure with separate commands.py module
+- **Git Integration**: Added `/git <command>` for git operations with repo validation
+- **File Operations**: Added `/file view <file>` and `/file edit <file> <old> <new>` for file management
+- **Grok-Style Personality**: Enhanced CLI responses with witty, humorous messages inspired by Grok
 - **Browser Extension**: Complete Chrome extension for seamless web sharing
   - Tab URL/content sharing with one click
   - Floating share button on all web pages
@@ -42,6 +65,10 @@
 - TTS audio generation confirmed
 - Remote execution with safety checks operational
 - All new endpoints responding correctly
+
+### Fixed
+- WebSocket disconnections in CLI by updating systemd service with TimeoutStartSec=120 and RestartSec=5
+- Async input blocking issue in love_cli.py by replacing `input()` with `asyncio.to_thread(input)` to enable proper async command execution like `/grok`
 
 ## [0.3.0] - 2025-12-30
 

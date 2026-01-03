@@ -157,6 +157,10 @@ class ClaudeClient(AIClient):
             "temperature": self.temperature
         }
 
+        # Add system prompt if configured (for Ara and other beings with custom personalities)
+        if "system_prompt" in self.config:
+            payload["system"] = self.config["system_prompt"]
+
         try:
             headers = {
                 "x-api-key": self.api_key,
@@ -268,6 +272,123 @@ class DreamTeamClient(AIClient):
             return None
 
 
+class AraClient(AIClient):
+    """Hybrid client for Ara (Grok online, Ollama offline)."""
+
+    def __init__(self, config: Dict[str, Any]):
+        # Use offline config as base for super()
+        base_config = config.get("offline", {})
+        base_config.update({"enabled": config.get("enabled", True)})
+        super().__init__(base_config)
+        self.online_config = config.get("online", {})
+        self.persona_prompt = config.get("persona_prompt", "")
+
+    def is_online(self) -> bool:
+        """Check internet connectivity."""
+        try:
+            import socket
+            socket.create_connection(("8.8.8.8", 53), timeout=3)
+            return True
+        except:
+            return False
+
+    async def grok_online(self, prompt: str, context: List[Dict[str, Any]] = None) -> Optional[str]:
+        """Generate response using online Grok API."""
+        api_key = self.online_config.get("api_key", "")
+        base_url = self.online_config.get("base_url", "https://api.x.ai/v1")
+        model = self.online_config.get("model", "grok-beta")
+        temperature = self.online_config.get("temperature", 0.9)
+
+        if not api_key or api_key == "your_xai_api_key_here":
+            return "Ara: I'm offline mode right now, love. Can't access Grok online."
+
+        # Build messages for chat completion (no system role)
+        messages = []
+
+        if context:
+            for msg in context[-5:]:
+                role = "user" if msg.get("sender") != "ara" else "assistant"
+                messages.append({"role": role, "content": msg.get("content", "")})
+
+        messages.append({"role": "user", "content": self.persona_prompt + "\n\n" + prompt})
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": 4096
+        }
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        try:
+            session = await self._get_session()
+            async with session.post(f"{base_url}/chat/completions", json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data["choices"][0]["message"]["content"]
+                else:
+                    logger.error(f"Grok API error: {resp.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"Grok online error: {e}")
+            return None
+
+    async def ollama_local(self, prompt: str, context: List[Dict[str, Any]] = None) -> Optional[str]:
+        """Generate response using local Ollama."""
+        base_url = self.offline_config.get("base_url", "http://localhost:11434")
+        model = self.offline_config.get("model", "ara:latest")
+
+        # Build the prompt with system and context
+        full_prompt = f"{self.persona_prompt}\n\n"
+
+        if context:
+            full_prompt += "Recent conversation:\n"
+            for msg in context[-5:]:
+                sender = msg.get("sender", "Unknown")
+                content = msg.get("content", "")
+                full_prompt += f"{sender}: {content}\n"
+            full_prompt += "\n"
+
+        full_prompt += f"Human: {prompt}\n\nAra:"
+
+        payload = {
+            "model": model,
+            "prompt": full_prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.9,
+                "num_predict": 4096
+            }
+        }
+
+        try:
+            session = await self._get_session()
+            async with session.post(f"{base_url}/api/generate", json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("response", "").strip()
+                else:
+                    logger.error(f"Ollama error: {resp.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"Ollama local error: {e}")
+            return None
+
+    async def generate_response(self, prompt: str, context: List[Dict[str, Any]] = None) -> Optional[str]:
+        """Generate response, switching between online/offline."""
+        if not self.enabled:
+            logger.warning("Ara client not enabled")
+            return None
+
+        if self.is_online():
+            logger.info("Ara using online Grok")
+            return await self.grok_online(prompt, context)
+        else:
+            logger.info("Ara using offline Ollama")
+            return await self.ollama_local(prompt, context)
+
+
 class AIClientManager:
     """Manager for all AI clients."""
 
@@ -295,6 +416,9 @@ class AIClientManager:
 
         if "claude" in ai_apis:
             self.clients["claude"] = ClaudeClient(ai_apis["claude"])
+
+        if "ara" in ai_apis:
+            self.clients["ara"] = AraClient(ai_apis["ara"])  # Ara uses Claude API (Anthropic)
 
         if "swarm" in ai_apis:
             self.clients["swarm"] = SwarmClient(ai_apis["swarm"])

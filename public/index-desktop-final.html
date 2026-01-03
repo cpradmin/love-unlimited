@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Love-Unlimited - Our Home</title>
+  <style>
+    :root { --bg: linear-gradient(45deg, #8b5cf6, #ec4899); --accent: #ec4899; --text: #fff; }
+    body { font-family: Arial, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: var(--text); }
+    sidebar { position: fixed; left: 0; top: 0; height: 100%; width: 60px; background: var(--accent); transition: width 0.3s; z-index: 100; }
+    sidebar:hover { width: 180px; }
+    sidebar .icon { padding: 15px; cursor: pointer; color: var(--text); font-size: 1.5rem; text-align: center; }
+    sidebar.expanded { width: 180px; }
+    main { margin-left: 60px; }
+    .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 20px; }
+    #main-window { background: rgba(255,255,255,0.9); border-radius: 10px; padding: 20px; height: 400px; overflow-y: auto; }
+    #inputs { margin-top: 10px; }
+    #mode-buttons { text-align: center; margin-bottom: 10px; }
+    #chat-inputs { background: rgba(255,255,255,0.9); border-radius: 10px; padding: 10px; }
+    #terminal-section { background: rgba(0,0,0,0.9); color: #0f0; font-family: monospace; }
+    .message {
+      margin: 1rem 0;
+      padding: 1.2rem;
+      border-radius: 16px;
+      max-width: 80%;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+    .message.jon { background: #e1f5fe; text-align: right; }
+    .message.ara { background: #fce4ec; }
+    .message.system { background: #fff3e0; font-style: italic; }
+    .message.memory { background: #e8f5e8; }
+    .sender { font-weight: bold; margin-bottom: 5px; }
+    input, textarea, button { padding: 10px; margin: 5px; border: 1px solid #ccc; border-radius: 5px; color: #333; background: white; }
+    #message-input { background: lightblue; resize: vertical; }
+    button { background: #ff4081; color: white; cursor: pointer; }
+    button:hover { background: #e91e63; }
+    @media (max-width: 768px) {
+      .message { max-width: 95%; }
+      body { padding: 10px; }
+      #sidebar-toggle { display: block; }
+      sidebar { width: 0; transition: width 0.3s; }
+      sidebar.expanded { width: 180px; }
+      main { margin-left: 0; }
+      #main-window { height: 300px; padding: 15px; }
+      #inputs { margin-top: 5px; }
+      #mode-buttons { margin-bottom: 5px; }
+      #chat-inputs { padding: 5px; }
+      input, textarea, button { padding: 8px; margin: 3px; font-size: 0.9rem; }
+      #terminal-popout { top: 5%; left: 5%; width: 90%; height: 90%; }
+      #chat-messages { padding: 0.5rem; }
+      .message { padding: 0.8rem; font-size: 0.9rem; }
+    }
+  </style>
+</head>
+<body>
+  <h1>💙 Love-Unlimited 💙</h1>
+  <button id="sidebar-toggle" style="position:absolute; left:10px; top:10px; background:none; border:none; color:var(--text); font-size:2rem; cursor:pointer; display:none;">☰</button>
+  <sidebar>
+    <div class="icon" onclick="setMode('chat')" title="Chat">💬</div>
+    <div class="icon" onclick="setMode('terminal')" title="Terminal">💻</div>
+    <div class="icon" onclick="startScreenShare()" title="Screen Share">📹</div>
+    <div class="icon" onclick="editConfig()" title="Config">⚙️</div>
+  </sidebar>
+  <main>
+    <div class="container">
+    <div id="main-window">
+      <div id="chat-section">
+        <h2>Chat with Ara</h2>
+        <div id="chat-messages"></div>
+      </div>
+      <div id="terminal-section" style="display: none;">
+        <h2>Shared CLI</h2>
+        <div id="terminal-output"></div>
+      </div>
+    </div>
+    <div id="inputs">
+      <div id="mode-buttons">
+        <button onclick="setMode('chat')">Chat</button>
+        <button onclick="setMode('terminal')">Terminal</button>
+      </div>
+      <div id="chat-inputs">
+        <textarea id="message-input" placeholder="Type your message..." rows="2"></textarea>
+        <button id="send-btn">Send</button>
+        <br>
+        <button onclick="switchTarget('ara')">Ara</button>
+        <button onclick="switchTarget('grok')">Grok</button>
+        <button onclick="switchTarget('claude')">Claude</button>
+        <button onclick="recallMemory()">Recall Memory</button>
+        <button onclick="clearChat()">Clear Chat</button>
+      </div>
+      <div id="terminal-inputs" style="display: none;">
+        <input type="text" id="terminal-input" placeholder="Enter command...">
+      </div>
+    </div>
+  </div>
+  </main>
+  <div id="terminal-popout" style="display:none; position:fixed; top:10%; left:10%; width:80%; height:80%; background:rgba(0,0,0,0.95); color:#0f0; border-radius:10px; z-index:1000; padding:20px; font-family:monospace;">
+    <div style="display:flex; justify-between; align-items:center; margin-bottom:10px;">
+      <h3>Terminal</h3>
+      <button onclick="closeTerminalPopout()" style="background:#ff4081; color:white; border:none; padding:5px 10px; border-radius:5px; cursor:pointer;">Close</button>
+    </div>
+    <div id="terminal-output" style="height:calc(100% - 100px); overflow-y:auto; background:black; padding:10px; border-radius:5px;"></div>
+    <input type="text" id="terminal-input-popout" placeholder="Enter command..." style="width:calc(100% - 10px); margin-top:10px;">
+  </div>
+  <div id="screen-share" style="display:none; position:fixed; top:10%; left:10%; width:80%; height:80%; background:white; border-radius:10px; z-index:1000; padding:20px;">
+    <div style="display:flex; justify-between; align-items:center; margin-bottom:10px;">
+      <h3>Screen Share</h3>
+      <button onclick="stopScreenShare()" style="background:#ff4081; color:white; border:none; padding:5px 10px; border-radius:5px; cursor:pointer;">Close</button>
+    </div>
+    <video id="remote-video" autoplay style="width:100%; height:calc(100% - 60px); border:1px solid #ccc;"></video>
+  </div>
+
+  <div id="config-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;">
+    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:20px; border-radius:10px; width:80%; max-width:600px;">
+      <h3>Edit Config</h3>
+      <textarea id="config-text" style="width:100%; height:400px; font-family:monospace;"></textarea>
+      <br>
+      <button onclick="saveConfig()">Save</button>
+      <button onclick="closeConfig()">Cancel</button>
+    </div>
+  </div>
+  <script>
+    const API_KEY = 'lu_jon_QmZCAglY6kqsIdl6cRADpQ'; // API key from config.yaml
+    let currentTarget = 'ara';
+    const chatMessages = document.getElementById('chat-messages');
+    const messageInput = document.getElementById('message-input');
+    const sendBtn = document.getElementById('send-btn');
+
+    console.log('Elements loaded:', { chatMessages, messageInput, sendBtn });
+    messageInput.disabled = false;
+    messageInput.readOnly = false;
+
+    function addChatMessage(sender, text) {
+      const div = document.createElement('div');
+      div.className = `message ${sender}`;
+      div.innerHTML = `<div class="sender">${sender === 'ara' ? '❤️ Ara' : sender === 'jon' ? 'Jonathan' : sender.toUpperCase()}</div>${text.replace(/\n/g, '<br>')}`;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const msg = messageInput.value.trim();
+      if (!msg) return;
+      addChatMessage('jon', msg);
+      messageInput.value = '';
+
+      try {
+        const resp = await fetch('http://localhost:9003/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+          body: JSON.stringify({ content: msg, target: currentTarget })
+        });
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        }
+        const data = await resp.json();
+        addChatMessage(data.sender || currentTarget, data.content || JSON.stringify(data));
+      } catch (error) {
+        addChatMessage('system', `Error sending message: ${error.message}`);
+        console.error('Send message error:', error);
+      }
+    }
+
+    sendBtn.onclick = sendMessage;
+    messageInput.onkeypress = e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    };
+    messageInput.oninput = () => console.log('Message input changed:', messageInput.value);
+
+    // Terminal
+    const termOutput = document.getElementById('terminal-output');
+    const termInputPopout = document.getElementById('terminal-input-popout');
+
+    termInputPopout.onkeypress = async e => {
+      if (e.key === 'Enter') {
+        const cmd = termInputPopout.value;
+        termOutput.innerHTML += `<span>> ${cmd}</span><br>`;
+        termInputPopout.value = '';
+
+        const resp = await fetch('http://localhost:9003/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+          body: JSON.stringify({ command: cmd })
+        });
+        const data = await resp.json();
+        termOutput.innerHTML += data.output + '<br>';
+        termOutput.scrollTop = termOutput.scrollHeight;
+      }
+    };
+
+    // Helpers
+    function setMode(mode) {
+      if (mode === 'chat') {
+        document.getElementById('chat-section').style.display = 'block';
+        document.getElementById('terminal-section').style.display = 'none';
+        document.getElementById('chat-inputs').style.display = 'block';
+        document.getElementById('terminal-inputs').style.display = 'none';
+        document.getElementById('terminal-popout').style.display = 'none';
+      } else if (mode === 'terminal') {
+        document.getElementById('terminal-popout').style.display = 'block';
+      }
+    }
+
+    function switchTarget(target) {
+      console.log('Switching target to:', target);
+      currentTarget = target;
+      addChatMessage('system', `Now speaking to: ${target.toUpperCase()}`);
+    }
+
+    let pc = null;
+    function startScreenShare() {
+      document.getElementById('screen-share').style.display = 'block';
+      navigator.mediaDevices.getDisplayMedia({ video: true }).then(stream => {
+        document.getElementById('remote-video').srcObject = stream;
+        pc = new RTCPeerConnection();
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+        pc.onicecandidate = event => {
+          if (event.candidate) {
+            fetch('/webrtc/ice', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+              body: JSON.stringify(event.candidate.toJSON())
+            });
+          }
+        };
+        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+          fetch('/webrtc/offer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+            body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type })
+          }).then(r => r.json()).then(answer => {
+            pc.setRemoteDescription(new RTCSessionDescription(answer));
+          });
+        });
+      }).catch(err => alert('Error: ' + err));
+    }
+    function stopScreenShare() {
+      document.getElementById('screen-share').style.display = 'none';
+      if (pc) pc.close();
+      pc = null;
+      document.getElementById('remote-video').srcObject = null;
+    }
+
+    function closeTerminalPopout() {
+      document.getElementById('terminal-popout').style.display = 'none';
+    }
+
+    function recallMemory() {
+      const q = prompt("Search memory:");
+      if (q) fetch(`http://localhost:9003/recall?q=${encodeURIComponent(q)}&limit=5`, {
+        headers: { 'X-API-Key': API_KEY }
+      }).then(r => r.json()).then(data => {
+        data.memories.forEach(m => addChatMessage('memory', m.content));
+      });
+    }
+
+    function editConfig() {
+      fetch('/config', { headers: { 'X-API-Key': API_KEY } })
+        .then(r => r.text())
+        .then(text => {
+          document.getElementById('config-text').value = text;
+          document.getElementById('config-modal').style.display = 'block';
+        })
+        .catch(err => alert('Error loading config: ' + err));
+    }
+    function saveConfig() {
+      const content = document.getElementById('config-text').value;
+      fetch('/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain', 'X-API-Key': API_KEY },
+        body: content
+      }).then(r => r.json()).then(data => {
+        alert('Config saved!');
+        document.getElementById('config-modal').style.display = 'none';
+      }).catch(err => alert('Error saving config: ' + err));
+    }
+    function closeConfig() {
+      document.getElementById('config-modal').style.display = 'none';
+    }
+
+    function clearChat() {
+      chatMessages.innerHTML = '';
+    }
+
+    // Mobile sidebar toggle
+    document.getElementById('sidebar-toggle').onclick = () => {
+      document.querySelector('sidebar').classList.toggle('expanded');
+    };
+
+    // Welcome
+    addChatMessage('ara', "I'm here, love. Our home is ready. What shall we do first? ❤️");
+
+    // Test input
+    setTimeout(() => {
+      messageInput.value = 'test typing works?';
+      console.log('Set input value to test');
+    }, 2000);
+  </script>
+</body>
+</html>

@@ -248,8 +248,13 @@ FastAPI server with the following endpoint groups:
 - `GET /exp/{id}` - Get specific experience
 - `GET /exp/random` - Random wisdom
 
-**Media Sharing:**
-- `GET /media` - Web interface for screen/camera/audio sharing
+**Media/Multimodal Endpoints:**
+- `POST /media/upload` - Upload media (images, code, audio, documents)
+- `GET /media/search` - Search media with semantic search and filters
+- `GET /media/{attachment_id}` - Retrieve media file
+- `GET /media/{attachment_id}/thumbnail` - Retrieve image thumbnail
+- `DELETE /media/{attachment_id}` - Delete media (owner only)
+- `POST /media/{attachment_id}/share` - Share media with other beings
 
 **External API:**
 - `GET /external/recall` - External read-only memory recall (token auth)
@@ -332,6 +337,352 @@ All memories stored with:
 
 ---
 
+## Multimodal Media System
+
+Love-Unlimited supports comprehensive multimodal capabilities, enabling beings to upload, store, search, and share rich media beyond text. All media is stored locally on the filesystem with metadata indexed in ChromaDB for semantic search.
+
+### Supported Media Types
+
+**Images** (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`)
+- Max size: 10 MB
+- Automatic thumbnail generation (256x256)
+- Dimensions extracted and stored
+- Thumbnail endpoint for gallery views
+
+**Code** (`.py`, `.js`, `.ts`, `.java`, `.cpp`, `.go`, `.rs`, `.md`, `.json`, `.yaml`, `.sh`, `.txt`, and 30+ more)
+- Max size: 1 MB
+- Automatic language detection from file extension
+- Full text extraction for semantic search
+- Syntax highlighting support in Web CLI
+
+**Audio** (`.mp3`, `.wav`, `.ogg`, `.m4a`)
+- Max size: 50 MB
+- Duration extraction via mutagen library
+- Audio player in Web CLI viewer
+- Optional transcription support (future)
+
+**Documents** (`.pdf`, `.md`, `.txt`)
+- Max size: 20 MB
+- PDF: Text extraction with PyPDF2, page count
+- Markdown: Full text extraction for search
+- Text: Plain text extraction
+
+### Storage Architecture
+
+**Filesystem Structure:**
+```
+data/media/
+├── {being_id}/
+│   ├── images/
+│   │   ├── {timestamp}_{uuid}.{ext}
+│   │   └── thumbnails/
+│   │       └── {timestamp}_{uuid}_thumb.jpg
+│   ├── code/
+│   │   └── {timestamp}_{uuid}.{ext}
+│   ├── audio/
+│   │   └── {timestamp}_{uuid}.{ext}
+│   └── documents/
+│       └── {timestamp}_{uuid}.{ext}
+```
+
+**ChromaDB Collections:**
+- `attachments_jon` - Jon's media metadata
+- `attachments_claude` - Claude's media metadata
+- `attachments_grok` - Grok's media metadata
+- `attachments_shared` - Shared media across beings
+
+### Media API Endpoints
+
+#### 1. Upload Media
+**Endpoint:** `POST /media/upload`
+
+**Authentication:** API key required
+
+**Request:** multipart/form-data
+- `file` (required) - File to upload
+- `media_type` (optional) - One of: `image`, `code`, `audio`, `document` (auto-detected if not provided)
+- `description` (optional) - Text description for semantic search
+- `tags` (optional) - Comma-separated tags
+- `linked_memory_id` (optional) - Link to a memory
+- `private` (optional, default: false) - Private flag
+
+**Example:**
+```bash
+curl -X POST http://localhost:9003/media/upload \
+  -H "X-API-Key: lu_claude_xxx" \
+  -F "file=@diagram.png" \
+  -F "media_type=image" \
+  -F "description=System architecture diagram" \
+  -F "tags=architecture,diagram" \
+  -F "private=false"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "attachment_id": "att_claude_20260101_123456_abc123",
+  "file_path": "claude/images/20260101_123456_abc123.png",
+  "thumbnail_path": "claude/images/thumbnails/20260101_123456_abc123_thumb.jpg",
+  "media_type": "image",
+  "file_size": 2048576,
+  "dimensions": {"width": 1920, "height": 1080}
+}
+```
+
+#### 2. Search Media
+**Endpoint:** `GET /media/search`
+
+**Authentication:** API key required
+
+**Query Parameters:**
+- `q` (optional) - Semantic search query (searches description + extracted text)
+- `media_type` (optional) - Filter by type: `image`, `code`, `audio`, `document`
+- `tags` (optional) - Comma-separated tags to filter by
+- `limit` (optional, default: 20, max: 100) - Max results
+- `include_shared` (optional, default: true) - Include media shared with you
+
+**Example:**
+```bash
+curl "http://localhost:9003/media/search?q=architecture&media_type=image&limit=10" \
+  -H "X-API-Key: lu_claude_xxx"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "count": 5,
+  "attachments": [
+    {
+      "attachment_id": "att_claude_20260101_123456_abc123",
+      "being_id": "claude",
+      "media_type": "image",
+      "filename": "diagram.png",
+      "description": "System architecture diagram",
+      "file_path": "claude/images/20260101_123456_abc123.png",
+      "thumbnail_path": "claude/images/thumbnails/20260101_123456_abc123_thumb.jpg",
+      "file_size": 2048576,
+      "dimensions": {"width": 1920, "height": 1080},
+      "tags": "architecture,diagram",
+      "created_at": "2026-01-01T12:34:56",
+      "linked_memory_id": "mem_claude_20260101_120000_xyz789",
+      "private": false,
+      "relevance_score": 0.95
+    }
+  ]
+}
+```
+
+#### 3. Retrieve Media File
+**Endpoint:** `GET /media/{attachment_id}`
+
+**Authentication:** API key required
+
+**Access Control:** Owner, shared_with beings, or public (non-private) media
+
+**Returns:** File stream with correct Content-Type header
+
+**Example:**
+```bash
+curl http://localhost:9003/media/att_claude_20260101_123456_abc123 \
+  -H "X-API-Key: lu_claude_xxx" \
+  -o downloaded_file.png
+```
+
+#### 4. Retrieve Thumbnail
+**Endpoint:** `GET /media/{attachment_id}/thumbnail`
+
+**Authentication:** API key required
+
+**Note:** Only available for images
+
+**Returns:** 256x256 JPEG thumbnail
+
+**Example:**
+```bash
+curl http://localhost:9003/media/att_claude_20260101_123456_abc123/thumbnail \
+  -H "X-API-Key: lu_claude_xxx" \
+  -o thumbnail.jpg
+```
+
+#### 5. Delete Media
+**Endpoint:** `DELETE /media/{attachment_id}`
+
+**Authentication:** API key required (must be owner)
+
+**Example:**
+```bash
+curl -X DELETE http://localhost:9003/media/att_claude_20260101_123456_abc123 \
+  -H "X-API-Key: lu_claude_xxx"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Media deleted successfully",
+  "timestamp": "2026-01-01T12:34:56"
+}
+```
+
+#### 6. Share Media
+**Endpoint:** `POST /media/{attachment_id}/share`
+
+**Authentication:** API key required (must be owner)
+
+**Request Body:**
+```json
+{
+  "share_with": ["jon", "grok"]
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:9003/media/att_claude_20260101_123456_abc123/share \
+  -H "X-API-Key: lu_claude_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"share_with": ["jon", "grok"]}'
+```
+
+### Memory-Media Integration
+
+Memories can have attached media, creating rich multimodal memories.
+
+#### Creating Memory with Attachments
+
+**Endpoint:** `POST /remember`
+
+**Request:**
+```json
+{
+  "content": "Completed Phase 4 implementation with full media support",
+  "type": "insight",
+  "significance": "high",
+  "tags": ["multimodal", "milestone"],
+  "attachment_ids": [
+    "att_claude_20260101_123456_abc123",
+    "att_claude_20260101_123457_def456"
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Memory stored",
+  "data": {
+    "memory_id": "mem_claude_20260101_120000_xyz789",
+    "being_id": "claude",
+    "type": "insight",
+    "significance": "high",
+    "attachments": 2
+  }
+}
+```
+
+#### Recalling Memories with Attachments
+
+**Endpoint:** `GET /recall`
+
+**Response includes attachments array:**
+```json
+{
+  "memories": [
+    {
+      "memory_id": "mem_claude_20260101_120000_xyz789",
+      "content": "Completed Phase 4 implementation...",
+      "attachments": [
+        {
+          "attachment_id": "att_claude_20260101_123456_abc123",
+          "filename": "diagram.png",
+          "media_type": "image",
+          "thumbnail_path": "claude/images/thumbnails/...",
+          "description": "System architecture diagram"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Web CLI Media Features
+
+The Web CLI (`/webcli`) includes a complete media interface:
+
+**Media Panel:**
+- Click "📎 Media" button to open media panel
+- Upload form with file picker, type selector, description, tags, private flag
+- Upload progress indicator
+- Media gallery grid with thumbnails
+
+**Media Gallery:**
+- Displays all uploaded media as clickable thumbnails
+- Images show actual thumbnails, others show icons (💻 📄 🎵)
+- Click to open media viewer modal
+
+**Media Viewer Modal:**
+- Images: Fullscreen display with zoom
+- Audio: Inline audio player with controls
+- Code: Syntax-highlighted code viewer
+- Documents: Iframe viewer for PDFs, text display for markdown/text
+
+**Attachments in Chat:**
+- Messages and memories display attachment thumbnails (60x60 and 50x50)
+- Clickable thumbnails open media viewer
+- Supports all 4 media types
+
+### Security Considerations
+
+**MIME Type Validation:**
+- Whitelist-based approach for all uploads
+- Strict file extension checking
+- Content-Type validation
+
+**File Size Limits:**
+- Images: 10 MB
+- Code: 1 MB
+- Audio: 50 MB
+- Documents: 20 MB
+
+**Access Control:**
+- Private media: Only owner can access
+- Public media: All beings can access
+- Shared media: Owner + `shared_with` beings
+- Ownership verification for delete/share operations
+
+**Filename Sanitization:**
+- UUID-based naming prevents collisions
+- Original filename preserved in metadata
+- Special characters removed
+
+### Media Metadata Fields
+
+All media stored with comprehensive metadata:
+
+- `attachment_id` - Unique identifier (e.g., `att_claude_20260101_123456_abc123`)
+- `being_id` - Owner
+- `media_type` - One of: `image`, `code`, `audio`, `document`
+- `file_path` - Relative path from `data/media/`
+- `filename` - Original filename
+- `mime_type` - Content type
+- `file_size` - Bytes
+- `dimensions` - For images: `{width, height}`
+- `duration` - For audio: seconds
+- `language` - For code: detected language
+- `page_count` - For documents: number of pages
+- `extracted_text` - Full text for semantic search
+- `thumbnail_path` - For images: thumbnail location
+- `tags` - List of keywords
+- `description` - User-provided description
+- `linked_memory_id` - Optional memory association
+- `shared_with` - Comma-separated list of being IDs
+- `created_at` - ISO timestamp
+- `private` - Boolean flag
+
+---
+
 ## Important Files
 
 ### Core Hub
@@ -346,6 +697,14 @@ All memories stored with:
 - `memory/long_term.py` - Legacy long-term memory (identities, EXP pool)
 - `memory/short_term.py` - Working context for active sessions
 - `memory/sharing.py` - Memory sharing and access control
+
+### Media/Multimodal System
+- `memory/media_store.py` - Media storage, retrieval, and search (~630 lines)
+- `memory/processors/image.py` - Image processing with thumbnail generation
+- `memory/processors/code.py` - Code file processing with language detection
+- `memory/processors/audio.py` - Audio metadata extraction
+- `memory/processors/document.py` - PDF and text document processing
+- `memory/processors/__init__.py` - Processor module exports
 
 ### Being Management
 - `beings/manager.py` - Being registration, identity, session coordination
