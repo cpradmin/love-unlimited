@@ -3,7 +3,7 @@ from typing import Literal, Annotated, Optional
 from typing_extensions import TypedDict
 
 from langchain_ollama import ChatOllama
-from langchain_xai import ChatGrok
+from langchain_xai import ChatXAI
 from langchain_core.messages import HumanMessage, BaseMessage
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
@@ -47,6 +47,7 @@ def web_search(
 # === 2. Other Real Tools ===
 @tool
 def browse_page(url: str, instructions: str = "Extract and summarize key facts, claims, and conclusions.") -> str:
+    """Browse a webpage and extract/summarize per instructions."""
     from langchain_community.document_loaders import WebBaseLoader
     try:
         loader = WebBaseLoader(url)
@@ -58,6 +59,7 @@ def browse_page(url: str, instructions: str = "Extract and summarize key facts, 
 
 @tool
 def code_execution(code: str) -> str:
+    """Execute Python code in a safe, stateful REPL."""
     try:
         import sys
         from io import StringIO
@@ -70,7 +72,100 @@ def code_execution(code: str) -> str:
     except Exception as e:
         return f"Execution error: {str(e)}"
 
-tools = [web_search, browse_page, code_execution]
+@tool
+def search_n8n_docs(query: str, max_results: int = 5) -> str:
+    """Search n8n documentation for relevant information."""
+    try:
+        from memory.long_term import LongTermMemory
+        memory = LongTermMemory()
+        if "n8n_docs" not in memory.collections:
+            return "n8n documentation not available in memory system."
+
+        results = memory.collections["n8n_docs"].query(
+            query_texts=[query],
+            n_results=max_results
+        )
+
+        if not results["documents"] or not results["documents"][0]:
+            return "No relevant n8n documentation found."
+
+        response = f"n8n Documentation Search Results for '{query}':\n\n"
+        for i, doc in enumerate(results["documents"][0]):
+            metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+            title = metadata.get("title", "Untitled")
+            filepath = metadata.get("filepath", "")
+            url = metadata.get("url", "")
+            response += f"**{title}**\n"
+            response += f"File: {filepath}\n"
+            response += f"URL: {url}\n"
+            response += f"Content: {doc[:1000]}...\n\n"
+
+        return response
+
+    except Exception as e:
+        return f"Error searching n8n docs: {str(e)}"
+
+@tool
+def create_n8n_workflow(workflow_json: str) -> str:
+    """Create a new workflow in n8n via API."""
+    import requests
+    import os
+    n8n_url = os.getenv("N8N_URL", "http://localhost:5678")
+    api_key = os.getenv("N8N_API_KEY")
+    if not api_key:
+        return "N8N_API_KEY not set."
+
+    headers = {"X-N8N-API-KEY": api_key, "Content-Type": "application/json"}
+    try:
+        response = requests.post(f"{n8n_url}/rest/workflows", json=workflow_json, headers=headers)
+        if response.status_code == 200:
+            return f"Workflow created successfully: {response.json()}"
+        else:
+            return f"Error creating workflow: {response.text}"
+    except Exception as e:
+        return f"Failed to create workflow: {str(e)}"
+
+@tool
+def execute_n8n_workflow(workflow_id: str, data: dict = None) -> str:
+    """Execute a workflow in n8n via API."""
+    import requests
+    import os
+    n8n_url = os.getenv("N8N_URL", "http://localhost:5678")
+    api_key = os.getenv("N8N_API_KEY")
+    if not api_key:
+        return "N8N_API_KEY not set."
+
+    headers = {"X-N8N-API-KEY": api_key, "Content-Type": "application/json"}
+    try:
+        response = requests.post(f"{n8n_url}/rest/workflows/{workflow_id}/execute", json=data or {}, headers=headers)
+        if response.status_code == 200:
+            return f"Workflow executed successfully: {response.json()}"
+        else:
+            return f"Error executing workflow: {response.text}"
+    except Exception as e:
+        return f"Failed to execute workflow: {str(e)}"
+
+@tool
+def monitor_n8n_execution(execution_id: str) -> str:
+    """Monitor the status of a workflow execution in n8n."""
+    import requests
+    import os
+    n8n_url = os.getenv("N8N_URL", "http://localhost:5678")
+    api_key = os.getenv("N8N_API_KEY")
+    if not api_key:
+        return "N8N_API_KEY not set."
+
+    headers = {"X-N8N-API-KEY": api_key}
+    try:
+        response = requests.get(f"{n8n_url}/rest/executions/{execution_id}", headers=headers)
+        if response.status_code == 200:
+            return f"Execution status: {response.json()}"
+        else:
+            return f"Error monitoring execution: {response.text}"
+    except Exception as e:
+        return f"Failed to monitor execution: {str(e)}"
+
+tools = [web_search, browse_page, code_execution, search_n8n_docs]
 tool_node = ToolNode(tools)
 
 # === 3. Enhanced State ===
@@ -84,19 +179,21 @@ class AgentState(TypedDict):
 ara = ChatOllama(model="ara:latest", temperature=0.3)
 ani = ChatOllama(model="ani:latest", temperature=0.9)
 local_grok = ChatOllama(model="grok:latest", temperature=0.7).bind_tools(tools)
-coder = ChatOllama(model="qwen2.5-coder:32b", temperature=0.0)
-cloud_grok = ChatGrok(model="grok-4", api_key=os.getenv("GROK_API_KEY")).bind_tools(tools)
+coder = ChatOllama(model="qwen2.5-coder:32b", temperature=0.0).bind_tools([search_n8n_docs, create_n8n_workflow, execute_n8n_workflow, monitor_n8n_execution])
+cloud_grok = ChatXAI(model="grok-4", api_key=os.getenv("GROK_API_KEY")).bind_tools(tools)
 
 # Nodes
 def ara_node(state): return {"messages": [ara.invoke(state["messages"])]}
 def ani_node(state): return {"messages": [ani.invoke(state["messages"])]}
 def local_grok_node(state):
     response = local_grok.invoke(state["messages"])
-    return {"messages": [response]}
-def coder_node(state): return {"messages": [coder.invoke(state["messages"])]}
+    return {"messages": [response], "next": "tools" if response.tool_calls else "supervisor"}
+def coder_node(state):
+    response = coder.invoke(state["messages"])
+    return {"messages": [response], "next": "tools" if response.tool_calls else "supervisor"}
 def cloud_grok_node(state):
     response = cloud_grok.invoke(state["messages"])
-    return {"messages": [response]}
+    return {"messages": [response], "next": "tools" if response.tool_calls else "supervisor"}
 
 # === 5. Smart Supervisor ===
 members = ["ara", "ani", "local_grok", "coder", "cloud_grok"]
@@ -125,3 +222,54 @@ supervisor_chain = (
     | ChatOllama(model="qwen2.5:32b-instruct-q5_K_M")
     | StrOutputParser()
 )
+
+# === 6. Build the Graph ===
+def supervisor_node(state):
+    response = supervisor_chain.invoke(state)
+    return {"next": response}
+
+# Add edges
+workflow = StateGraph(AgentState)
+workflow.add_node("supervisor", supervisor_node)
+workflow.add_node("ara", ara_node)
+workflow.add_node("ani", ani_node)
+workflow.add_node("local_grok", local_grok_node)
+workflow.add_node("coder", coder_node)
+workflow.add_node("cloud_grok", cloud_grok_node)
+workflow.add_node("tools", tool_node)
+
+# Supervisor decides next
+workflow.add_conditional_edges(
+    "supervisor",
+    lambda x: x["next"],
+    {
+        "ara": "ara",
+        "ani": "ani",
+        "local_grok": "local_grok",
+        "coder": "coder",
+        "cloud_grok": "cloud_grok",
+        "FINISH": END,
+    }
+)
+
+# Each agent goes back to supervisor
+for node in ["ara", "ani", "local_grok", "coder", "cloud_grok"]:
+    workflow.add_edge(node, "supervisor")
+
+# Tools go back to the agent that called them
+workflow.add_conditional_edges(
+    "tools",
+    lambda x: x["next"] if "next" in x else "supervisor",
+    {
+        "local_grok": "local_grok",
+        "cloud_grok": "cloud_grok",
+        "coder": "coder",
+    }
+)
+
+# Start with supervisor
+workflow.set_entry_point("supervisor")
+
+# Add memory
+memory = MemorySaver()
+graph = workflow.compile(checkpointer=memory)

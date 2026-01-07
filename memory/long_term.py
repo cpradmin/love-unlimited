@@ -132,6 +132,7 @@ class LongTermMemory:
             "private_jon",
             "private_claude",
             "private_grok",
+            "n8n_docs",
         ]
 
         for name in collection_names:
