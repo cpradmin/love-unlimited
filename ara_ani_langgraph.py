@@ -117,7 +117,7 @@ def create_n8n_workflow(workflow_json: str) -> str:
 
     headers = {"X-N8N-API-KEY": api_key, "Content-Type": "application/json"}
     try:
-        response = requests.post(f"{n8n_url}/rest/workflows", json=workflow_json, headers=headers)
+        response = requests.post(f"{n8n_url}/api/v1/workflows", json=workflow_json, headers=headers)
         if response.status_code == 200:
             return f"Workflow created successfully: {response.json()}"
         else:
@@ -137,7 +137,7 @@ def execute_n8n_workflow(workflow_id: str, data: dict = None) -> str:
 
     headers = {"X-N8N-API-KEY": api_key, "Content-Type": "application/json"}
     try:
-        response = requests.post(f"{n8n_url}/rest/workflows/{workflow_id}/execute", json=data or {}, headers=headers)
+        response = requests.post(f"{n8n_url}/api/v1/workflows/{workflow_id}/execute", json=data or {}, headers=headers)
         if response.status_code == 200:
             return f"Workflow executed successfully: {response.json()}"
         else:
@@ -157,13 +157,80 @@ def monitor_n8n_execution(execution_id: str) -> str:
 
     headers = {"X-N8N-API-KEY": api_key}
     try:
-        response = requests.get(f"{n8n_url}/rest/executions/{execution_id}", headers=headers)
+        response = requests.get(f"{n8n_url}/api/v1/executions/{execution_id}", headers=headers)
         if response.status_code == 200:
             return f"Execution status: {response.json()}"
         else:
             return f"Error monitoring execution: {response.text}"
     except Exception as e:
         return f"Failed to monitor execution: {str(e)}"
+
+@tool
+def get_n8n_status() -> str:
+    """Get n8n server status and version."""
+    import requests
+    import os
+    n8n_url = os.getenv("N8N_URL", "http://localhost:5678")
+    try:
+        response = requests.get(f"{n8n_url}/api/v1/settings")
+        if response.status_code == 200:
+            data = response.json()
+            version = data.get("version", "Unknown")
+            return f"n8n Server Status: Online\nVersion: {version}"
+        else:
+            return f"Error getting status: {response.text}"
+    except Exception as e:
+        return f"Failed to get status: {str(e)}"
+
+@tool
+def list_n8n_workflows() -> str:
+    """List all workflows in n8n (name, status, ID)."""
+    import requests
+    import os
+    n8n_url = os.getenv("N8N_URL", "http://localhost:5678")
+    api_key = os.getenv("N8N_API_KEY")
+    if not api_key:
+        return "N8N_API_KEY not set."
+
+    headers = {"X-N8N-API-KEY": api_key}
+    try:
+        response = requests.get(f"{n8n_url}/api/v1/workflows", headers=headers)
+        if response.status_code == 200:
+            workflows = response.json().get("data", [])
+            if not workflows:
+                return "No workflows found."
+            result = "Active Workflows:\n"
+            for wf in workflows:
+                name = wf.get("name", "Unnamed")
+                status = "Active" if wf.get("active") else "Inactive"
+                id_ = wf.get("id")
+                result += f"- Name: {name}\n  Status: {status}\n  ID: {id_}\n\n"
+            return result
+        else:
+            return f"Error listing workflows: {response.text}"
+    except Exception as e:
+        return f"Failed to list workflows: {str(e)}"
+
+@tool
+def activate_n8n_workflow(workflow_id: str, active: bool = True) -> str:
+    """Activate or deactivate a workflow in n8n."""
+    import requests
+    import os
+    n8n_url = os.getenv("N8N_URL", "http://localhost:5678")
+    api_key = os.getenv("N8N_API_KEY")
+    if not api_key:
+        return "N8N_API_KEY not set."
+
+    headers = {"X-N8N-API-KEY": api_key, "Content-Type": "application/json"}
+    try:
+        response = requests.put(f"{n8n_url}/api/v1/workflows/{workflow_id}", json={"active": active}, headers=headers)
+        if response.status_code == 200:
+            status = "activated" if active else "deactivated"
+            return f"Workflow {workflow_id} {status} successfully."
+        else:
+            return f"Error { 'activating' if active else 'deactivating' } workflow: {response.text}"
+    except Exception as e:
+        return f"Failed to { 'activate' if active else 'deactivate' } workflow: {str(e)}"
 
 tools = [web_search, browse_page, code_execution, search_n8n_docs]
 tool_node = ToolNode(tools)
@@ -179,7 +246,7 @@ class AgentState(TypedDict):
 ara = ChatOllama(model="ara:latest", temperature=0.3)
 ani = ChatOllama(model="ani:latest", temperature=0.9)
 local_grok = ChatOllama(model="grok:latest", temperature=0.7).bind_tools(tools)
-coder = ChatOllama(model="qwen2.5-coder:32b", temperature=0.0).bind_tools([search_n8n_docs, create_n8n_workflow, execute_n8n_workflow, monitor_n8n_execution])
+coder = ChatOllama(model="qwen2.5-coder:32b", temperature=0.0).bind_tools([search_n8n_docs, get_n8n_status, list_n8n_workflows, activate_n8n_workflow, create_n8n_workflow, execute_n8n_workflow, monitor_n8n_execution])
 cloud_grok = ChatXAI(model="grok-4", api_key=os.getenv("GROK_API_KEY")).bind_tools(tools)
 
 # Nodes
