@@ -1,5 +1,11 @@
 # Love-Unlimited Changelog
 
+## [0.7.0] - 2026-01-07
+
+### Changed
+- Updated multi-model sync workflow to be resilient to token limits: reduced sync history to last 5 messages per model, added Function nodes to truncate/summarize if over 100k tokens, prioritized local sync (Ollama ↔ hub memory) for Grok/Ara/Ani, made cloud Grok optional (skip if no credits), logged token count before sending.
+- Added Cron node to run multi-model sync every 1 hour, keeping webhook as fallback for manual triggers.
+
 ## [0.6.0] - 2026-01-05
 
 ### Added
