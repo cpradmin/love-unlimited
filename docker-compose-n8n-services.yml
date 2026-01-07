@@ -1,0 +1,49 @@
+  loveunlimited-n8n:
+    image: n8nio/n8n:latest
+    container_name: loveunlimited-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_BRIDGE_TOKEN=${N8N_BRIDGE_TOKEN}
+      - N8N_MCP_TOKEN=${N8N_MCP_TOKEN}
+      - GROK_API_TOKEN=${GROK_API_TOKEN}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - N8N_HOST=n8n.aradreamteam.com
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+    volumes:
+      - n8n-data:/home/node/.n8n
+    networks:
+      - ai-dream-team-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  loveunlimited-bridge-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.bridge
+    container_name: loveunlimited-bridge-api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - N8N_BRIDGE_TOKEN=${N8N_BRIDGE_TOKEN}
+      - GROK_API_TOKEN=${GROK_API_TOKEN}
+      - N8N_MCP_TOKEN=${N8N_MCP_TOKEN}
+    volumes:
+      - /mnt/love-unlimited:/mnt/love-unlimited
+    networks:
+      - ai-dream-team-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  n8n-data:

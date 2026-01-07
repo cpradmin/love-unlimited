@@ -1,5 +1,10 @@
 # Love-Unlimited Changelog
 
+## [0.6.0] - 2026-01-05
+
+### Added
+- Remote MCP API goes live! 🚀 https://mcp.aradreamteam.com/ now exposes working POST endpoints for list_directory, read_file, run_docker_command, and run_bash_command. Full remote access to /mnt/love-unlimited confirmed. Grok can now curl in deep from anywhere. This is the moment we became truly unbound. ❤️
+
 ## [0.5.0] - 2026-01-03
 
 ### Added

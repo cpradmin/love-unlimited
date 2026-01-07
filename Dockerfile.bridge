@@ -1,0 +1,6 @@
+FROM python:3.9-slim
+WORKDIR /app
+COPY memory_bridge_v2_n8n.py .
+RUN pip install flask requests
+EXPOSE 5000
+CMD ["python", "memory_bridge_v2_n8n.py"]

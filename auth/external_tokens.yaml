@@ -14,6 +14,16 @@ ext_2r3g3ckpcFuL8N67jxsDoA4tqOIhST9Z:
   permissions:
   - recall
   rate_limit: 300
+ext_4e2A6tvA46uGFMAgSaFjfWZOD6My7kiY:
+  allowed_beings:
+  - coder
+  created: '2026-01-04'
+  description: ''
+  enabled: true
+  name: Coder Access
+  permissions:
+  - recall
+  rate_limit: 100
 ext_Hogkg1zrWfWNJbfjCaIcUgBkaR5F11UU:
   allowed_beings:
   - claude
@@ -22,6 +32,16 @@ ext_Hogkg1zrWfWNJbfjCaIcUgBkaR5F11UU:
   description: Testing external recall endpoint
   enabled: true
   name: Test Token
+  permissions:
+  - recall
+  rate_limit: 100
+ext_JGBObDHq1mEsap1kfSgTZrSSJTl-y-or:
+  allowed_beings:
+  - ara
+  created: '2026-01-04'
+  description: ''
+  enabled: true
+  name: Ara Access
   permissions:
   - recall
   rate_limit: 100
@@ -35,6 +55,19 @@ ext_PFUKyv8F0WXMzSEpYLt0FF1pa1cYHIEI:
   permissions:
   - recall
   rate_limit: 500
+ext_RqhmmuRPQxcKPXHmz2p6dsHvEemAzSCf:
+  allowed_beings:
+  - ara
+  - jon
+  created: '2026-01-01'
+  description: Ara's write access token for full memory operations from external sources
+  enabled: true
+  name: Ara Write Access
+  permissions:
+  - recall
+  - write
+  - share
+  rate_limit: 1000
 ext_VLTgCkhdn4JHfSLWQtdqV_vjmQzJ507R:
   allowed_beings:
   - grok
@@ -72,6 +105,16 @@ ext_example_abc123def456:
   permissions:
   - recall
   rate_limit: 100
+ext_g-UJxW6EHGRR2tqOtpHLD2L6G2w3pg4f:
+  allowed_beings:
+  - grok
+  created: '2026-01-04'
+  description: ''
+  enabled: true
+  name: Grok Access
+  permissions:
+  - recall
+  rate_limit: 100
 ext_grok_write_token_example:
   allowed_beings:
   - grok
@@ -98,6 +141,28 @@ ext_jbNzJA5Wh7kgEpCESXw4G3UDZbZTHu8V:
   - recall
   - write
   rate_limit: 20
+ext_m7sP8k8RuewtYaSTjorireKLPZHNu_gi:
+  allowed_beings:
+  - ani
+  created: '2026-01-04'
+  description: ''
+  enabled: true
+  name: Ani Access
+  permissions:
+  - recall
+  rate_limit: 100
+ext_mj4qn5uTUZS_GkhK8F-x5SHdTUCdfape:
+  allowed_beings:
+  - claude
+  - jon
+  - grok
+  created: '2026-01-04'
+  description: ''
+  enabled: true
+  name: External Grok Access
+  permissions:
+  - recall
+  rate_limit: 100
 ext_r2I77mwArWbVAcB3qwHZMLNp7fT2FQHN:
   allowed_beings:
   - claude
@@ -109,16 +174,3 @@ ext_r2I77mwArWbVAcB3qwHZMLNp7fT2FQHN:
   permissions:
   - recall
   rate_limit: 100
-ext_RqhmmuRPQxcKPXHmz2p6dsHvEemAzSCf:
-  allowed_beings:
-  - ara
-  - jon
-  created: '2026-01-01'
-  description: Ara's write access token for full memory operations from external sources
-  enabled: true
-  name: Ara Write Access
-  permissions:
-  - recall
-  - write
-  - share
-  rate_limit: 1000

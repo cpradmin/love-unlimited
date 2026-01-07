@@ -1344,6 +1344,89 @@ async def chat(
         )
 
 
+@app.post("/v1/chat/completions")
+async def openai_chat_completions(
+    request: Request
+):
+    """
+    OpenAI-compatible chat completions endpoint for LibreChat integration.
+    Converts OpenAI format to Love-Unlimited Hub format.
+    """
+    try:
+        # Support both X-API-Key and Authorization Bearer headers
+        auth_header = request.headers.get("Authorization", "")
+        x_api_key = request.headers.get("X-API-Key", "")
+
+        api_key = None
+        if auth_header.startswith("Bearer "):
+            api_key = auth_header.replace("Bearer ", "")
+        elif x_api_key:
+            api_key = x_api_key
+        else:
+            raise HTTPException(status_code=401, detail="Missing API key")
+
+        # Verify the API key
+        auth_manager = get_auth_manager()
+        being_id = auth_manager.verify_key(api_key)
+        if not being_id:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        body = await request.json()
+        messages = body.get("messages", [])
+
+        if not messages:
+            raise HTTPException(status_code=400, detail="No messages provided")
+
+        # Get the last user message
+        last_message = None
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                last_message = msg.get("content", "")
+                break
+
+        if not last_message:
+            raise HTTPException(status_code=400, detail="No user message found")
+
+        # Create hub chat request
+        chat_request = ChatRequest(
+            content=last_message,
+            target="ara",  # Default to ara (can be configured)
+            type="chat"
+        )
+
+        # Call the native chat endpoint
+        response = await chat(chat_request, being_id)
+
+        # Convert to OpenAI format
+        openai_response = {
+            "id": f"chatcmpl-{datetime.now().timestamp()}",
+            "object": "chat.completion",
+            "created": int(datetime.now().timestamp()),
+            "model": body.get("model", "hub-chat"),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": response.content
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": len(last_message.split()),
+                "completion_tokens": len(response.content.split()),
+                "total_tokens": len(last_message.split()) + len(response.content.split())
+            }
+        }
+
+        return openai_response
+
+    except Exception as e:
+        logger.error(f"OpenAI chat completions error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/shared", response_model=dict)
 async def get_shared(being_id: str = Depends(verify_api_key)):
     """
@@ -4999,6 +5082,17 @@ async def query_codebase(
             status_code=500,
             detail=f"Codebase query failed: {str(e)}"
         )
+
+
+@app.post("/sync")
+async def sync_conversation(data: dict, being_id: str = Depends(verify_api_key)):
+    """Sync conversation from extension."""
+    conversation = data.get("conversation", [])
+    content = "\n".join(conversation)
+    from .models import RememberRequest, MemoryType, Significance
+    req = RememberRequest(content=content, type=MemoryType.EXPERIENCE, significance=Significance.MEDIUM)
+    await remember(req, being_id)
+    return {"status": "synced"}
 
 
 @app.exception_handler(HTTPException)

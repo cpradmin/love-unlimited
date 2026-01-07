@@ -47,6 +47,10 @@ PyPDF2>=3.0.0
 Markdown>=3.5.0
 mutagen>=1.47.0
 
+# Web Scraping
+selenium==4.15.2
+webdriver-manager==4.0.1
+
 # Development
 pytest==7.4.4
 pytest-asyncio==0.23.3

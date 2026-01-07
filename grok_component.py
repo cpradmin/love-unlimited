@@ -89,11 +89,11 @@ class HubClient:
         }
         
         async with self.session.post(
-            f"{self.base_url}/memories",
+            f"{self.base_url}/remember",
             json=memory_data,
             headers={"Content-Type": "application/json"}
         ) as response:
-            return response.status == 201
+            return response.status == 200
     
     async def get_recent_memories(self, limit: int = 10) -> List[Dict]:
         """Get recent memories for context"""

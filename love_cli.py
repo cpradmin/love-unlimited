@@ -16,6 +16,42 @@ import logging
 from commands import run_bash_command, run_python_command, run_git_command, view_file, edit_file, print_help
 from grok_component import GrokCLIComponent
 
+# Handle command line arguments for memory operations
+if len(sys.argv) > 1:
+    if sys.argv[1] == "memory" and len(sys.argv) > 3:
+        if sys.argv[2] == "write":
+            # Parse --persona and --content
+            persona = None
+            content = None
+            i = 3
+            while i < len(sys.argv):
+                if sys.argv[i] == "--persona" and i + 1 < len(sys.argv):
+                    persona = sys.argv[i + 1]
+                    i += 2
+                elif sys.argv[i] == "--content" and i + 1 < len(sys.argv):
+                    content = sys.argv[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            if persona and content:
+                async def save_memory():
+                    component = GrokCLIComponent()
+                    await component.initialize()
+                    async with component.hub_client:
+                        success = await component.hub_client.save_memory(content, tags=["grok-cli", "memory-write"], significance="high")
+                        if success:
+                            print("Memory saved successfully")
+                        else:
+                            print("Failed to save memory")
+                asyncio.run(save_memory())
+                sys.exit(0)
+            else:
+                print("Usage: python love_cli.py memory write --persona <persona> --content <content>")
+                sys.exit(1)
+    else:
+        print("Unknown command")
+        sys.exit(1)
+
 # Setup logging
 logging.basicConfig(
     level=logging.WARNING,

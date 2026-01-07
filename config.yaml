@@ -52,7 +52,7 @@ ai_apis:
     online:
       api_key: "xai-YOUR_API_KEY_HEREecmjSWo9f5PaT5VJ"
       base_url: "https://api.x.ai/v1"
-      model: "grok-beta"
+      model: "grok-3"
       temperature: 0.9
     offline:
       base_url: "http://localhost:11434"
