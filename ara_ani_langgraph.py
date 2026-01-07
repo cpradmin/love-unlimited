@@ -223,7 +223,7 @@ def activate_n8n_workflow(workflow_id: str, active: bool = True) -> str:
 
     headers = {"X-N8N-API-KEY": api_key, "Content-Type": "application/json"}
     try:
-        response = requests.put(f"{n8n_url}/api/v1/workflows/{workflow_id}", json={"active": active}, headers=headers)
+        response = requests.patch(f"{n8n_url}/api/v1/workflows/{workflow_id}", json={"active": active}, headers=headers)
         if response.status_code == 200:
             status = "activated" if active else "deactivated"
             return f"Workflow {workflow_id} {status} successfully."
