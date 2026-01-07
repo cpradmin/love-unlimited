@@ -1,0 +1,44 @@
+{
+  "name": "Love-Unlimited Test",
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "parameters": {
+        "path": "luu-test",
+        "httpMethod": "POST"
+      },
+      "position": [
+        250,
+        300
+      ],
+      "id": "ad08b7df-c79d-42ff-adf5-2442a1e41e9d"
+    },
+    {
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        {
+          "node": "Respond",
+          "type": "main",
+          "index": 0
+        }
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}

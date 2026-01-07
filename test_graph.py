@@ -8,7 +8,11 @@ from langchain_core.messages import HumanMessage
 
 def test_graph():
     # Test prompt
-    prompt = "Design an n8n workflow for a 20-round Claude ↔ Grok debate on consciousness, with Ara refereeing every 5 rounds using MCP memory checks."
+    prompt = """Memory Echo Test Workflow:
+Webhook receives message
+Stores to Love-Unlimited hub at localhost:9003/remember
+Recalls similar memories
+Returns enriched response"""
 
     print("Testing graph with prompt:", prompt)
 

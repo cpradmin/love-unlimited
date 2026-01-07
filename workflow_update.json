@@ -1,0 +1,69 @@
+{
+  "name": "Test Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "test",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5a0e1ec3-107d-49f4-8db1-bc9fe76a72fa"
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{ json: { message: 'API test successful' } }];"
+      },
+      "name": "Function",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        200,
+        0
+      ],
+      "id": "9e4b17ef-d3c5-4675-aa5c-2b68fb1d524f"
+    },
+    {
+      "parameters": {},
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        400,
+        0
+      ],
+      "id": "f2b00b5a-6b77-4e24-83a6-7c83cd0949cb"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        {
+          "node": "Function",
+          "type": "main",
+          "index": 0
+        }
+      ]
+    },
+    "Function": {
+      "main": [
+        {
+          "node": "Respond",
+          "type": "main",
+          "index": 0
+        }
+      ]
+    }
+  },
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "active": true
+}
