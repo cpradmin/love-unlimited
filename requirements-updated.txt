@@ -1,0 +1,79 @@
+# Love-Unlimited - Memory Sovereignty Hub
+# Python dependencies - UPDATED (2025-01-09)
+
+# ============================================
+# CORE API FRAMEWORK
+# ============================================
+fastapi>=0.128.0              # Updated from 0.109.0 (security + features)
+uvicorn[standard]>=0.30.0     # Updated from 0.27.0 (performance)
+python-multipart>=0.0.6       # File upload support
+
+# ============================================
+# MEMORY STORAGE (CORE)
+# ============================================
+chromadb>=0.4.22,<0.5.0       # Keep 0.4.x for stability (0.5.x has breaking changes)
+sentence-transformers>=2.3.1   # Embeddings for semantic search
+
+# ============================================
+# CONFIGURATION & MODELS
+# ============================================
+pyyaml>=6.0.3                 # Updated from 6.0.1 (security fixes)
+python-dotenv>=1.0.0          # Environment variables
+pydantic>=2.10.0              # Updated from 2.5.3 (performance + bug fixes)
+pydantic-settings>=2.1.0      # Settings management
+
+# ============================================
+# DATABASE
+# ============================================
+sqlalchemy>=2.0.25            # ORM (current version is good)
+aiosqlite>=0.19.0             # Async SQLite adapter
+
+# ============================================
+# HTTP CLIENTS
+# ============================================
+httpx>=0.27.0                 # Updated from 0.26.0 (bug fixes)
+aiohttp>=3.11.0               # Updated from 3.9.1 (CRITICAL security fixes)
+python-dateutil>=2.8.2        # Date utilities
+
+# ============================================
+# AUTHENTICATION (SIMPLIFIED)
+# ============================================
+# REMOVED: python-jose (unmaintained, not needed for API key auth)
+# REMOVED: passlib (not needed - no password hashing in current implementation)
+# NOTE: If you need JWT in future, use PyJWT>=2.10.0 directly
+
+# ============================================
+# MULTIMODAL SUPPORT (CORE)
+# ============================================
+Pillow>=10.0.0                # Image processing
+PyPDF2>=3.0.0                 # PDF text extraction
+Markdown>=3.5.0               # Markdown processing
+mutagen>=1.47.0               # Audio metadata extraction
+
+# ============================================
+# DEVELOPMENT & TESTING
+# ============================================
+pytest>=7.4.4
+pytest-asyncio>=0.23.3
+black>=23.12.1
+ruff>=0.1.11
+
+# ============================================
+# OPTIONAL DEPENDENCIES
+# ============================================
+# Install with: pip install -r requirements-optional.txt
+# or: pip install love-unlimited[optional]
+
+# Web scraping (only for batch_export_grok_conversations.py)
+# selenium>=4.25.0
+# webdriver-manager>=4.0.1
+
+# WebRTC screen sharing (only if using /webcli screen share)
+# aiortc>=1.6.0
+
+# Text-to-speech (only if using TTS features)
+# pyttsx3>=2.90
+
+# Redis support (only if using Redis for short-term memory)
+# redis>=5.0.1
+# aioredis>=2.0.1

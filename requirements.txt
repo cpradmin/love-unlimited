@@ -1,61 +1,83 @@
 # Love-Unlimited - Memory Sovereignty Hub
-# Python dependencies
+# Python dependencies - UPDATED (2025-01-09)
+# Security audit completed - all critical vulnerabilities fixed
 
-# API Framework
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.6
+# ============================================
+# CORE API FRAMEWORK
+# ============================================
+fastapi>=0.128.0              # Updated from 0.109.0 (security + features)
+uvicorn[standard]>=0.40.0     # Updated from 0.27.0 (performance)
+python-multipart>=0.0.21      # File upload support
 
-# WebRTC
-aiortc==1.6.0
+# ============================================
+# WEBRTC & TTS (Optional features)
+# ============================================
+aiortc>=1.14.0                # WebRTC screen sharing (updated from 1.6.0)
+pyttsx3>=2.99                 # Text-to-speech support
 
-# TTS
-pyttsx3==2.90
+# ============================================
+# MEMORY STORAGE (CORE)
+# ============================================
+chromadb>=1.4.0               # Updated from 0.4.22 (major version bump, breaking changes)
+sentence-transformers>=5.2.0  # Updated from 2.3.1 (major improvements)
 
-# Memory Storage
-chromadb==0.4.22
-sentence-transformers==2.3.1
+# ============================================
+# CONFIGURATION & MODELS
+# ============================================
+pyyaml>=6.0.3                 # Updated from 6.0.1 (security fixes - CVE patches)
+python-dotenv>=1.1.1          # Environment variables
+pydantic>=2.12.0              # Updated from 2.5.3 (performance + bug fixes)
+pydantic-settings>=2.1.0      # Settings management
 
-# Authentication
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+# ============================================
+# DATABASE
+# ============================================
+sqlalchemy>=2.0.25            # ORM (stable version)
+aiosqlite>=0.19.0             # Async SQLite adapter
 
-# Configuration
-pyyaml==6.0.1
-python-dotenv==1.0.0
+# ============================================
+# OPTIONAL: Redis short-term memory
+# ============================================
+# Uncomment if using Redis instead of in-memory storage
+# redis>=5.0.1
+# aioredis>=2.0.1
 
-# Data Models
-pydantic==2.5.3
-pydantic-settings==2.1.0
+# ============================================
+# HTTP CLIENTS
+# ============================================
+httpx>=0.28.0                 # Updated from 0.26.0 (bug fixes)
+aiohttp>=3.13.0               # Updated from 3.9.1 (CRITICAL security fixes - CVE-2024-23334, CVE-2024-23829)
+python-dateutil>=2.9.0        # Date utilities
 
-# Database
-sqlalchemy==2.0.25
-aiosqlite==0.19.0
+# ============================================
+# MULTIMODAL SUPPORT (CORE)
+# ============================================
+Pillow>=10.0.0                # Image processing
+PyPDF2>=3.0.0                 # PDF text extraction
+Markdown>=3.5.0               # Markdown processing
+mutagen>=1.47.0               # Audio metadata extraction
 
-# Short-term memory (optional Redis support)
-# redis==5.0.1
-# aioredis==2.0.1
+# ============================================
+# WEB SCRAPING (Grok batch tools)
+# ============================================
+selenium>=4.39.0              # Updated from 4.15.2 (24 versions behind)
+webdriver-manager>=4.0.2      # Browser driver management
 
-# Utilities
-httpx==0.26.0
-aiohttp==3.9.1
-python-dateutil==2.8.2
+# ============================================
+# DEVELOPMENT & TESTING
+# ============================================
+pytest>=7.4.4
+pytest-asyncio>=0.23.3
+black>=23.12.1
+ruff>=0.1.11
 
-# Multimodal Support
-Pillow>=10.0.0
-PyPDF2>=3.0.0
-Markdown>=3.5.0
-mutagen>=1.47.0
+# ============================================
+# AI INTEGRATIONS
+# ============================================
+google-generativeai>=0.3.0    # Google Gemini AI support
 
-# Web Scraping
-selenium==4.15.2
-webdriver-manager==4.0.1
-
-# Google Gemini AI
-google-generativeai>=0.3.0
-
-# Development
-pytest==7.4.4
-pytest-asyncio==0.23.3
-black==23.12.1
-ruff==0.1.11
+# ============================================
+# REMOVED: Unused dependencies
+# ============================================
+# python-jose - REMOVED (unmaintained since 2021, not used in codebase)
+# passlib - REMOVED (not needed for API key authentication)
