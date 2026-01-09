@@ -272,6 +272,15 @@ The system now supports remote command execution, allowing AIs to run code, test
 - **Short prompts work best** for Claude and Grok
 - **Swarm is slower** - use for local/private tasks only
 - **Compare outputs** - different AIs = different perspectives
+
+## 🔄 Workflow Integration
+
+The multi-model sync workflow is now active for AI-to-AI memory sharing:
+- **Webhook URL:** http://localhost:5678/webhook/multi-sync
+- **Usage:** POST with JSON body like `{"model": "grok"}` to trigger sync.
+- **Features:** Token truncation, optional cloud sync, error logging.
+
+Test with: `curl -X POST http://localhost:5678/webhook/multi-sync -H "Content-Type: application/json" -d '{"model": "grok"}'`
 - **Iterate** - refine prompts if first output isn't perfect
 - **Memory sovereignty** - All conversations are stored in private memory
 - **Use `/to all`** carefully (can timeout with slow AIs like Swarm)

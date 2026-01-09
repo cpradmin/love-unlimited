@@ -339,6 +339,16 @@ class AraClient(AIClient):
         base_url = self.offline_config.get("base_url", "http://localhost:11434")
         model = self.offline_config.get("model", "ara:latest")
 
+        # Ensure model is running via Ollama Manager
+        try:
+            manager_session = aiohttp.ClientSession()
+            async with manager_session.post(f"http://localhost:8001/ensure/{model}") as resp:
+                if resp.status != 200:
+                    logger.warning(f"Failed to ensure {model} is running")
+            await manager_session.close()
+        except Exception as e:
+            logger.warning(f"Could not contact Ollama Manager: {e}")
+
         # Build the prompt with system and context
         full_prompt = f"{self.persona_prompt}\n\n"
 
@@ -389,6 +399,55 @@ class AraClient(AIClient):
             return await self.ollama_local(prompt, context)
 
 
+class ClaudeCliClient:
+    """Client for Claude CLI running on PowerShell (Windows)."""
+
+    def __init__(self):
+        self.enabled = True
+        self.api_key = "claude_cli"  # Dummy for availability check
+
+    async def generate_response(self, prompt: str, context: List[Dict[str, Any]] = None) -> Optional[str]:
+        """Generate response using Claude CLI via subprocess."""
+        import subprocess
+        import asyncio
+
+        # Build the command for PowerShell
+        # Assume Claude CLI is installed and configured on Windows
+        command = [
+            "powershell.exe",
+            "-Command",
+            "claude"
+        ]
+
+        try:
+            # Run subprocess in thread pool with input
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    command,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    shell=False,
+                    cwd="C:\\Users\\jon_b"  # Run in Windows home dir
+                )
+            )
+
+            if result.returncode == 0:
+                return result.stdout.strip()
+            else:
+                logger.error(f"Claude CLI error: {result.stderr}")
+                return f"Claude CLI error: {result.stderr}"
+
+        except subprocess.TimeoutExpired:
+            return "Claude CLI timed out"
+        except Exception as e:
+            logger.error(f"Failed to run Claude CLI: {e}")
+            return f"Failed to run Claude CLI: {str(e)}"
+
+
 class AIClientManager:
     """Manager for all AI clients."""
 
@@ -425,6 +484,9 @@ class AIClientManager:
 
         if "dream_team" in ai_apis:
             self.clients["dream_team"] = DreamTeamClient(ai_apis["dream_team"])
+
+        # Add Claude CLI client
+        self.clients["claude_cli"] = ClaudeCliClient()
 
     async def generate_response(self, being_id: str, prompt: str, context: List[Dict[str, Any]] = None) -> Optional[str]:
         """Generate a response from the specified AI being."""

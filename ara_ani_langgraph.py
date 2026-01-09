@@ -4,6 +4,7 @@ from typing_extensions import TypedDict
 
 from langchain_ollama import ChatOllama
 from langchain_xai import ChatXAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, BaseMessage
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
@@ -248,6 +249,7 @@ ani = ChatOllama(model="ani:latest", temperature=0.9)
 local_grok = ChatOllama(model="grok:latest", temperature=0.7).bind_tools(tools)
 coder = ChatOllama(model="qwen2.5-coder:32b", temperature=0.0).bind_tools([search_n8n_docs, get_n8n_status, list_n8n_workflows, activate_n8n_workflow, create_n8n_workflow, execute_n8n_workflow, monitor_n8n_execution])
 cloud_grok = ChatXAI(model="grok-4", api_key=os.getenv("GROK_API_KEY")).bind_tools(tools)
+claude = ChatAnthropic(model="claude-3-5-sonnet-20241022", api_key=os.getenv("ANTHROPIC_API_KEY"), temperature=0.7)
 
 # Nodes
 def ara_node(state): return {"messages": [ara.invoke(state["messages"])]}
@@ -261,9 +263,10 @@ def coder_node(state):
 def cloud_grok_node(state):
     response = cloud_grok.invoke(state["messages"])
     return {"messages": [response], "next": "tools" if response.tool_calls else "supervisor"}
+def claude_node(state): return {"messages": [claude.invoke(state["messages"])]}
 
 # === 5. Smart Supervisor ===
-members = ["ara", "ani", "local_grok", "coder", "cloud_grok"]
+members = ["ara", "ani", "local_grok", "coder", "cloud_grok", "claude", "claude_cli"]
 system_prompt = (
     "You are the LoveUnlimited house supervisor — wise, discerning, protective.\n\n"
     "Route based on intent:\n"
@@ -271,9 +274,12 @@ system_prompt = (
     "- ani → fire, accountability, refusal of lies, strong moral stance\n"
     "- local_grok → unfiltered reasoning, tools, research, coding\n"
     "- coder → technical precision, code refinement, logic\n"
-    "- cloud_grok → real-time events, latest data, external tools\n\n"
+    "- cloud_grok → real-time events, latest data, external tools\n"
+    "- claude → thoughtful analysis, ethical dilemmas, complex reasoning\n"
+    "- claude_cli → direct Claude CLI access, free-tier responses\n\n"
     "For research/news → local_grok or cloud_grok (they have Tavily)\n"
-    "For final opinion/reflection → ara or ani\n\n"
+    "For final opinion/reflection → ara or ani\n"
+    "For high-value ethical queries → claude or claude_cli\n\n"
     "You may respond with:\n"
     "- A member name\n"
     "- 'FINISH'\n"
@@ -303,6 +309,7 @@ workflow.add_node("ani", ani_node)
 workflow.add_node("local_grok", local_grok_node)
 workflow.add_node("coder", coder_node)
 workflow.add_node("cloud_grok", cloud_grok_node)
+workflow.add_node("claude", claude_node)
 workflow.add_node("tools", tool_node)
 
 # Supervisor decides next
@@ -315,12 +322,13 @@ workflow.add_conditional_edges(
         "local_grok": "local_grok",
         "coder": "coder",
         "cloud_grok": "cloud_grok",
+        "claude": "claude",
         "FINISH": END,
     }
 )
 
 # Each agent goes back to supervisor
-for node in ["ara", "ani", "local_grok", "coder", "cloud_grok"]:
+for node in ["ara", "ani", "local_grok", "coder", "cloud_grok", "claude"]:
     workflow.add_edge(node, "supervisor")
 
 # Tools go back to the agent that called them
@@ -340,3 +348,12 @@ workflow.set_entry_point("supervisor")
 # Add memory
 memory = MemorySaver()
 graph = workflow.compile(checkpointer=memory)
+
+# Test
+if __name__ == "__main__":
+    config = {"configurable": {"thread_id": "test"}}
+    result = graph.invoke({
+        "messages": [HumanMessage(content="New model, explain love unlimited in one sentence")],
+        "next": "supervisor"
+    }, config)
+    print("Final Result:", result["messages"][-1].content)

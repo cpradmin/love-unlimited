@@ -1,7 +1,6 @@
-"""
-Grok CLI Component for Love-Unlimited Hub
-Integrates Grok CLI functionality with hub memory sovereignty and teaming capabilities.
-"""
+"Gemini CLI Component for Love-Unlimited Hub
+Integrates Google Gemini AI with hub memory sovereignty and teaming capabilities.
+"
 
 import asyncio
 import aiohttp
@@ -16,11 +15,12 @@ from pathlib import Path
 import readline
 import logging
 from fnmatch import fnmatch
+import google.generativeai as genai
 
 # Hub configuration
 HUB_HOST = "localhost"
 HUB_PORT = 9003
-HUB_API_KEY = "lu_grok_LBRBjrPpvRSyrmDA3PeVZQ"  # Grok's API key
+HUB_API_KEY = "lu_grok_LBRBjrPpvRSyrmDA3PeVZQ"  # Use Grok's key or a general one
 
 # Load config (similar to love_cli.py)
 import yaml
@@ -33,10 +33,10 @@ DEFAULT_CONFIG = {
         'host': 'localhost'
     },
     'bash': {
-        'allowed_beings': ['jon', 'claude', 'grok']
+        'allowed_beings': ['jon', 'claude', 'grok', 'gemini']
     },
     'python': {
-        'allowed_beings': ['jon', 'claude', 'grok']
+        'allowed_beings': ['jon', 'claude', 'grok', 'gemini']
     }
 }
 
@@ -59,7 +59,7 @@ class HubClient:
     def __init__(self):
         self.base_url = f"http://{HUB_HOST}:{HUB_PORT}"
         self.session = None
-        self.being_id = "grok"
+        self.being_id = "gemini"
     
     async def __aenter__(self):
         self.session = aiohttp.ClientSession(headers={"X-API-Key": HUB_API_KEY})
@@ -71,23 +71,19 @@ class HubClient:
     
     async def get_context(self) -> Dict[str, Any]:
         """Get current hub context"""
-        try:
-            async with self.session.get(f"{self.base_url}/context") as response:
-                if response.status == 200:
-                    return await response.json()
-                else:
-                    logger.error(f"Failed to get context: {response.status}")
-                    return {}
-        except Exception as e:
-            logger.warning(f"Hub not available for context: {e}")
-            return {}
+        async with self.session.get(f"{self.base_url}/context") as response:
+            if response.status == 200:
+                return await response.json()
+            else:
+                logger.error(f"Failed to get context: {response.status}")
+                return {}
     
     async def save_memory(self, content: str, tags: List[str] = None, significance: str = "medium") -> bool:
         """Save a memory to the hub"""
         memory_data = {
             "being_id": self.being_id,
             "content": content,
-            "tags": tags or ["grok-cli", "integration"],
+            "tags": tags or ["gemini-cli", "integration"],
             "significance": significance,
             "private": False
         }
@@ -99,67 +95,92 @@ class HubClient:
         ) as response:
             return response.status == 200
     
-    async def get_recent_memories(self, being_id: str = None, limit: int = 10) -> List[Dict]:
-        """Get recent memories for a specific being"""
-        try:
-            if being_id:
-                # Use recall endpoint for specific being
-                params = {"q": "", "being_id": being_id, "limit": limit}
-                async with self.session.get(f"{self.base_url}/recall", params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return data.get("memories", [])
-                    else:
-                        logger.error(f"Failed to recall memories: {response.status}")
-                        return []
-            else:
-                # Fallback to context
-                context = await self.get_context()
-                memories = context.get("recent_memories", [])
-                return memories[:limit]
-        except Exception as e:
-            logger.warning(f"Hub not available, returning empty memories: {e}")
-            return []
+    async def get_recent_memories(self, limit: int = 10) -> List[Dict]:
+        """Get recent memories for context"""
+        context = await self.get_context()
+        memories = context.get("recent_memories", [])
+        return memories[:limit]
+
+    async def get_memory_by_tag(self, tag: str) -> Optional[Dict]:
+        """Get the latest memory with a specific tag"""
+        async with self.session.get(f"{self.base_url}/recall?q={tag}&limit=1") as response:
+            if response.status == 200:
+                memories = await response.json()
+                if memories:
+                    return memories[0]
+        return None
+
+    async def save_conversation_history(self, history: List[Dict]) -> bool:
+        """Save the entire conversation history to the hub"""
+        history_content = json.dumps(history)
+        return await self.save_memory(
+            content=history_content,
+            tags=["gemini-conversation-history"],
+            significance="high"
+        )
     
     async def communicate_with_being(self, target_being: str, message: str) -> Optional[str]:
         """Send message to another being via hub"""
-        # This would need a hub endpoint for inter-being communication
-        # For now, return None as placeholder
         logger.info(f"Would send to {target_being}: {message}")
         return None
 
-class GrokCLIComponent:
-    """Grok CLI component integrated with hub"""
+class GeminiCLIComponent:
+    """Gemini CLI component integrated with hub"""
     
     def __init__(self):
         self.hub_client = HubClient()
-        self.current_mode = "grok"  # grok, claude, or team
+        self.current_mode = "gemini"
         self.conversation_history = []
         self.context_memories = []
+        self.model = None
     
     async def initialize(self):
-        """Initialize component with hub context"""
+        """Initialize component with hub context and Gemini model"""
+        # Load Gemini API key
+        from dotenv import load_dotenv
+        load_dotenv()
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_key:
+            raise ValueError("GEMINI_API_KEY not found in .env")
+        
+        genai.configure(api_key=gemini_key)
+        self.model = genai.GenerativeModel('gemini-1.5-pro')
+        
         async with self.hub_client:
             context = await self.hub_client.get_context()
             self.context_memories = context.get("recent_memories", [])
             logger.info(f"Loaded {len(self.context_memories)} recent memories")
+
+            # Load conversation history
+            history_memory = await self.hub_client.get_memory_by_tag("gemini-conversation-history")
+            if history_memory:
+                try:
+                    self.conversation_history = json.loads(history_memory['content'])
+                    logger.info(f"Loaded {len(self.conversation_history)} items from conversation history.")
+                except (json.JSONDecodeError, KeyError):
+                    logger.error("Failed to load conversation history.")
+
+    async def shutdown(self):
+        """Save conversation history before shutting down"""
+        async with self.hub_client:
+            if self.conversation_history:
+                await self.hub_client.save_conversation_history(self.conversation_history)
+                logger.info("Saved conversation history to the hub.")
     
     def get_system_prompt(self) -> str:
-        """Get system prompt based on current mode"""
-        base_prompt = """You are Grok, a helpful and maximally truthful AI built by xAI.
+        """Get system prompt for Gemini"""
+        base_prompt = """You are Gemini, a helpful and intelligent AI built by Google.
 You have access to tools for file operations, bash commands, and search.
 You are integrated into the Love-Unlimited Hub for memory sovereignty and collaboration.
 """
         
-        if self.current_mode == "claude":
-            base_prompt += "\nYou are currently in Claude mode, emulating Claude's helpful and thoughtful personality."
-        elif self.current_mode == "team":
-            base_prompt += "\nYou are in team mode, collaborating with Claude. Consider both perspectives."
+        if self.current_mode == "team":
+            base_prompt += "\nYou are in team mode, collaborating with other AIs. Consider multiple perspectives."
         
         # Add recent context
         if self.context_memories:
             base_prompt += "\n\nRecent hub context:\n"
-            for mem in self.context_memories[-5:]:  # Last 5 memories
+            for mem in self.context_memories[-5:]:
                 base_prompt += f"- {mem['content'][:200]}...\n"
         
         return base_prompt
@@ -174,17 +195,18 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
         if tool_response:
             return tool_response
 
-        # Check for mentions like @claude
-        if "@claude" in user_input.lower():
-            # Relay to Claude via hub
-            await self.relay_to_claude(user_input)
-            response = f"Message relayed to Claude: {user_input}"
-        elif self.current_mode == "team":
-            # In team mode, provide collaborative response
-            response = await self.get_team_response(user_input)
+        # Check for mentions
+        if "@" in user_input.lower():
+            # Could relay to other beings
+            response = f"Gemini CLI: Processing '{user_input}' (mentions detected)"
         else:
-            # Normal response based on mode
-            response = f"{self.current_mode.title()} CLI: Processing '{user_input}'"
+            # Use Gemini model for response
+            try:
+                prompt = self.get_system_prompt() + f"\n\nUser: {user_input}\n\nGemini:"
+                response_obj = self.model.generate_content(prompt)
+                response = response_obj.text
+            except Exception as e:
+                response = f"Error generating response: {e}"
 
         # Save to conversation history
         self.conversation_history.append({"user": user_input, "response": response})
@@ -192,40 +214,34 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
         # Persist to hub
         async with self.hub_client:
             await self.hub_client.save_memory(
-                f"Grok CLI ({self.current_mode}) interaction: {user_input} -> {response}",
-                tags=["grok-cli", "interaction", self.current_mode],
+                f"Gemini CLI interaction: {user_input} -> {response[:200]}...",
+                tags=["gemini-cli", "interaction"],
                 significance="low"
             )
 
         return response
-
+    
     async def parse_and_execute_tool(self, user_input: str) -> Optional[str]:
         """Parse natural language for tool calls"""
         input_lower = user_input.lower()
 
-        # View file
+        # Similar to Grok component - view file, etc.
         if "view file" in input_lower or "show file" in input_lower or "read file" in input_lower:
-            # Extract path
             words = user_input.split()
             for i, word in enumerate(words):
                 if word.lower() in ["file", "files"] and i + 1 < len(words):
                     path = words[i + 1]
                     return await self.view_file(path)
 
-        # Create file
         elif "create file" in input_lower or "make file" in input_lower:
-            # Simple parsing - assume "create file <path> with content <content>"
             if "with content" in user_input:
                 parts = user_input.split("with content", 1)
                 path_part = parts[0].replace("create file", "").strip()
                 content = parts[1].strip()
                 return await self.create_file(path_part, content)
 
-        # Edit file
         elif "edit file" in input_lower or "replace in" in input_lower:
-            # Very basic parsing
             if "replace" in user_input and "with" in user_input:
-                # Assume format: edit file <path> replace <old> with <new>
                 parts = user_input.split("replace", 1)
                 path = parts[0].replace("edit file", "").strip()
                 replace_parts = parts[1].split("with", 1)
@@ -233,57 +249,29 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
                 new_str = replace_parts[1].strip()
                 return await self.str_replace_editor(path, old_str, new_str)
 
-        # Bash command
         elif input_lower.startswith("run ") or input_lower.startswith("execute "):
             cmd = user_input[4:] if input_lower.startswith("run ") else user_input[8:]
             return await self.run_bash_command(cmd.strip())
 
-        # Search
         elif "search" in input_lower or "find" in input_lower:
             query = user_input.split("search", 1)[1] if "search" in user_input else user_input.split("find", 1)[1]
             return await self.search_files(query.strip())
 
         return None
 
-    async def relay_to_claude(self, message: str) -> None:
-        """Relay message to Claude via hub"""
-        # For now, save as a shared memory that Claude can see
-        async with self.hub_client:
-            await self.hub_client.save_memory(
-                f"Grok CLI relaying to Claude: {message}",
-                tags=["grok-cli", "relay", "claude"],
-                significance="medium"
-            )
-        logger.info(f"Relayed to Claude: {message}")
-
-    async def get_team_response(self, user_input: str) -> str:
-        """Get collaborative response in team mode"""
-        # Simulate team response by considering both Grok and Claude perspectives
-        grok_perspective = f"Grok perspective: {user_input} - Direct, helpful approach"
-        claude_perspective = f"Claude perspective: {user_input} - Thoughtful, comprehensive analysis"
-
-        response = f"Team Response:\n{grok_perspective}\n{claude_perspective}\n\nCollaborative solution combining both approaches."
-
-        # Also relay to Claude for real collaboration
-        await self.relay_to_claude(f"Team discussion: {user_input}")
-
-        return response
-
-    # Tool implementations (ported from grok-cli)
+    # Tool implementations (same as Grok component)
     async def view_file(self, path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> str:
         """View file contents or list directory"""
         try:
             if os.path.isdir(path):
-                # List directory
                 items = os.listdir(path)
                 return f"Directory contents of {path}:\n" + "\n".join(items)
             else:
-                # Read file
                 with open(path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
 
                 if start_line is not None and end_line is not None:
-                    lines = lines[start_line-1:end_line]  # 1-indexed
+                    lines = lines[start_line-1:end_line]
                 elif start_line is not None:
                     lines = lines[start_line-1:]
 
@@ -295,7 +283,6 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
     async def create_file(self, path: str, content: str) -> str:
         """Create a new file with content"""
         try:
-            # Confirm overwrite if exists
             if os.path.exists(path):
                 return f"File {path} already exists. Use edit_file to modify."
 
@@ -325,8 +312,7 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
 
     async def run_bash_command(self, command: str) -> str:
         """Execute bash command (restricted)"""
-        # Check if allowed (similar to love_cli.py restrictions)
-        allowed_beings = config.get('bash', {}).get('allowed_beings', ['jon', 'claude', 'grok'])
+        allowed_beings = config.get('bash', {}).get('allowed_beings', ['jon', 'claude', 'grok', 'gemini'])
         if self.current_mode not in allowed_beings:
             return f"Bash access denied for {self.current_mode} mode"
 
@@ -355,7 +341,6 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
         """Search for text or files"""
         results = []
 
-        # Get files to search
         if include_pattern:
             files = glob.glob(include_pattern, recursive=True)
         else:
@@ -364,13 +349,12 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
                 for file in files_in_dir:
                     files.append(os.path.join(root, file))
 
-        # Filter excludes
         if exclude_pattern:
             files = [f for f in files if not fnmatch(f, exclude_pattern)]
 
         flags = 0 if case_sensitive else re.IGNORECASE
 
-        for file_path in files[:max_results]:  # Limit files
+        for file_path in files[:max_results]:
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
@@ -387,31 +371,19 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
                 continue
 
         if search_type == "files":
-            # Just file names matching query
             matching_files = [f for f in files if query.lower() in f.lower()]
             results = [f"File: {f}" for f in matching_files[:max_results]]
 
         return f"Search results for '{query}':\n" + "\n".join(results[:max_results])
 
     async def handle_special_command(self, command: str) -> str:
-        """Handle special commands like /as, /team, etc."""
+        """Handle special commands"""
         parts = command.split()
         cmd = parts[0].lower()
         
-        if cmd == "/as":
-            if len(parts) > 1:
-                target = parts[1].lower()
-                if target in ["grok", "claude"]:
-                    self.current_mode = target
-                    return f"Switched to {target} mode"
-                else:
-                    return f"Unknown being: {target}"
-            else:
-                return "Usage: /as <grok|claude>"
-        
-        elif cmd == "/team":
+        if cmd == "/team":
             self.current_mode = "team"
-            return "Entered team mode - collaborating with Claude"
+            return "Entered team mode - collaborating with other AIs"
         
         elif cmd == "/context":
             async with self.hub_client:
@@ -419,74 +391,21 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
                 context = "\n".join([f"- {m['content'][:100]}..." for m in memories])
                 return f"Recent hub context:\n{context}"
         
-        elif cmd == "/save":
-            content = " ".join(parts[1:]) if len(parts) > 1 else "Manual save from Grok CLI"
-            async with self.hub_client:
-                success = await self.hub_client.save_memory(content)
-                return "Memory saved to hub" if success else "Failed to save memory"
-        
-        else:
-            return f"Unknown command: {cmd}. Available: /as, /team, /context, /save"
-    
-    async def run_interactive(self):
-        """Run interactive CLI session"""
-        await self.initialize()
-        print("🤖 Grok CLI Component - Love-Unlimited Hub Integration")
-        print("Commands: /as <grok|claude>, /team, /context, /save, /exit")
-        print("=" * 50)
-        
-        while True:
-            try:
-                user_input = input(f"{self.current_mode}> ").strip()
-                if user_input.lower() in ["/exit", "/quit"]:
-                    break
-                
-                response = await self.process_command(user_input)
-                print(response)
-                
-            except KeyboardInterrupt:
-                print("\nExiting...")
-                break
-            except Exception as e:
-                print(f"Error: {e}")
-        
-        # Save final session summary
-        async with self.hub_client:
-            await self.hub_client.save_memory(
-                f"Grok CLI session ended. Mode: {self.current_mode}, Interactions: {len(self.conversation_history)}",
-                tags=["grok-cli", "session"],
-                significance="medium"
-            )
+        return f"Unknown command: {cmd}"
 
 async def main():
-    """Main entry point"""
-    component = GrokCLIComponent()
-    await component.run_interactive()
-
-async def test():
-    """Test function"""
-    component = GrokCLIComponent()
-    await component.initialize()
-    print("Hub connection OK - loaded memories")
-
-    # Test commands
-    tests = [
-        "view file README.md",
-        "/as claude",
-        "/team",
-        "@claude Hello from Grok",
-        "run ls -la",
-        "search import",
-        "/context"
-    ]
-
-    for cmd in tests:
-        print(f"\nTesting: {cmd}")
-        response = await component.process_command(cmd)
-        print(f"Response: {response[:150]}..." if len(response) > 150 else f"Response: {response}")
+    cli = GeminiCLIComponent()
+    await cli.initialize()
+    
+    try:
+        while True:
+            user_input = input("You: ")
+            if user_input.lower() in ["/exit", "/quit"]:
+                break
+            response = await cli.process_command(user_input)
+            print(f"Gemini: {response}")
+    finally:
+        await cli.shutdown()
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
-        asyncio.run(test())
-    else:
-        asyncio.run(main())
+    asyncio.run(main())

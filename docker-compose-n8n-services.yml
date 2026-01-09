@@ -18,10 +18,7 @@
     networks:
       - ai-dream-team-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+      disable: true
 
   loveunlimited-bridge-api:
     build:

@@ -10,6 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import aiohttp
 import yaml
 
@@ -212,6 +215,9 @@ async def startup_event():
     logger.info("Hub is ready for beings to connect")
     logger.info("=" * 70)
 
+    # Start learning loop
+    asyncio.create_task(learning_loop())
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -288,6 +294,7 @@ async def health():
     # Base tunnel URL (externally accessible)
     base_url = "https://luu.aradreamteam.com"
     claude_token = "ext_jbNzJA5Wh7kgEpCESXw4G3UDZbZTHu8V"
+    gemini_token = "ext_gemini_..."  # Need to set up Gemini token
 
     return {
         "status": "operational",
@@ -306,6 +313,20 @@ async def health():
                 "gateway": "RECOMMENDED: Replace REQUEST with natural language (URL-encoded). AI interprets intent and executes action.",
                 "claude_simple": "SIMPLEST: Replace REQUEST with natural language (URL-encoded). Token and being pre-embedded for Claude.",
                 "claude_mailbox": "FULL AUTONOMY: Speak intent freely. Watcher detects, processes, and stores in fixed /claude/outbox for fetching.",
+                "recall": "Replace QUERY with URL-encoded search terms",
+                "remember": "Replace CONTENT with URL-encoded memory text",
+                "note": "Token is pre-embedded. Just replace placeholders and fetch URL."
+            }
+        },
+        "gemini_web_endpoints": {
+            "gateway": f"{base_url}/gateway?token={gemini_token}&from_being=gemini&request=REQUEST&model=gemini-1.5-pro",
+            "gemini_mailbox_inbox": f"{base_url}/gemini/inbox (POST JSON body)",
+            "gemini_mailbox": f"{base_url}/gemini/outbox",
+            "recall": f"{base_url}/external/recall?token={gemini_token}&q=QUERY&being_id=gemini&limit=10",
+            "remember": f"{base_url}/external/remember?token={gemini_token}&being_id=gemini&content=CONTENT&type=experience&significance=high&shared_with=jon",
+            "usage": {
+                "gateway": "RECOMMENDED: Replace REQUEST with natural language (URL-encoded). AI interprets intent and executes action.",
+                "gemini_mailbox": "FULL AUTONOMY: Speak intent freely. Watcher detects, processes, and stores in fixed /gemini/outbox for fetching.",
                 "recall": "Replace QUERY with URL-encoded search terms",
                 "remember": "Replace CONTENT with URL-encoded memory text",
                 "note": "Token is pre-embedded. Just replace placeholders and fetch URL."
@@ -842,12 +863,12 @@ async def get_context(being_id: str = Depends(verify_api_key)):
     context = being_manager.get_session_context(being_id)
 
     # Get recent personal memories from memory bridge
-    recent_memories = memory_store.get_all_memories(being_id, limit=10)
+    recent_memories = memory_store.get_all_memories(being_id, limit=20)
     context["recent_memories"] = recent_memories
 
     # Get recent shared memories
     shared_memories = sharing_manager.get_shared_with_me(being_id)
-    context["shared_recent"] = shared_memories[:5]  # Last 5 shared
+    context["shared_recent"] = shared_memories[:20]  # Last 20 shared
 
     # Search Jon's EXP for welcome wisdom
     exp_results = long_term_memory.search_exp(
@@ -2445,6 +2466,7 @@ async def ai_gateway(
 
 # Claude Intent Mailbox for full autonomy within web_fetch constraints
 claude_mailbox = {}  # request_id -> {"request": str, "model": str, "status": "pending|processing|completed", "result": dict, "timestamp": datetime}
+gemini_mailbox = {}  # request_id -> {"request": str, "model": str, "status": "pending|processing|completed", "result": dict, "timestamp": datetime}
 
 @app.get("/claude")
 async def claude_simplified_gateway(
@@ -2564,6 +2586,120 @@ async def claude_outbox_latest():
     # Find the most recent completed entry
     completed_entries = [
         (rid, entry) for rid, entry in claude_mailbox.items()
+        if entry["status"] == "completed"
+    ]
+
+    if not completed_entries:
+        return {"result": None, "timestamp": None, "ready": False}
+
+    # Sort by timestamp descending
+    completed_entries.sort(key=lambda x: x[1]["timestamp"], reverse=True)
+    latest_rid, latest_entry = completed_entries[0]
+
+    return {
+        "result": latest_entry["result"],
+        "timestamp": latest_entry["timestamp"].isoformat(),
+        "ready": True,
+        "request_id": latest_rid
+    }
+
+
+# ============================================================================
+# Gemini Intent Mailbox for full autonomy
+# ============================================================================
+
+@app.post("/gemini/inbox")
+async def gemini_inbox(request_data: Dict[str, Any]):
+    """
+    Gemini Intent Mailbox - Submit requests for processing.
+    Gemini can POST natural language requests here, then fetch results from /gemini/outbox.
+
+    Body: {"request": "natural language request", "model": "gemini-1.5-pro"} (model optional)
+    Returns: {"request_id": "unique_id", "status": "queued"}
+    """
+    req_text = request_data.get("request", "").strip()
+    model = request_data.get("model", "gemini-1.5-pro")
+
+    if not req_text:
+        raise HTTPException(status_code=400, detail="Request text required")
+
+    # Generate unique request ID
+    request_id = f"gemini_req_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(req_text) % 10000:04d}"
+
+    # Store in mailbox
+    gemini_mailbox[request_id] = {
+        "request": req_text,
+        "model": model,
+        "status": "queued",
+        "result": None,
+        "timestamp": datetime.now()
+    }
+
+    logger.info(f"Gemini Mailbox: Queued request {request_id} - {req_text[:50]}...")
+
+    return {"request_id": request_id, "status": "queued"}
+
+
+@app.get("/gemini/outbox/{request_id}")
+async def gemini_outbox(request_id: str):
+    """
+    Gemini Intent Mailbox - Retrieve processed request results.
+    Gemini fetches processed results by request_id.
+
+    Returns: {"request_id": "id", "status": "completed|processing|queued", "result": {...}} or error if not found
+    """
+    if request_id not in gemini_mailbox:
+        raise HTTPException(status_code=404, detail=f"Request {request_id} not found")
+
+    entry = gemini_mailbox[request_id]
+
+    # If still queued, process it now
+    if entry["status"] == "queued":
+        entry["status"] = "processing"
+
+        try:
+            # Create mock request for logging
+            class MockRequest:
+                def __init__(self):
+                    self.client = None
+            mock_request = MockRequest()
+
+            # Process the request using Gemini component
+            # For now, we'll use the ai_gateway with gemini model
+            result = await ai_gateway(
+                request=mock_request,
+                token="ext_gemini_...",  # Need to set up Gemini token
+                from_being="gemini",
+                req=entry["request"],
+                model=entry["model"]
+            )
+
+            entry["result"] = result
+            entry["status"] = "completed"
+
+            logger.info(f"Gemini Mailbox: Completed request {request_id}")
+
+        except Exception as e:
+            entry["status"] = "error"
+            entry["result"] = {"error": str(e)}
+            logger.error(f"Gemini Mailbox: Failed request {request_id} - {str(e)}")
+
+    return {
+        "request_id": request_id,
+        "status": entry["status"],
+        "result": entry["result"]
+    }
+
+
+@app.get("/gemini/outbox")
+async def gemini_outbox_latest():
+    """
+    Gemini Intent Mailbox - Fixed URL for latest processed result.
+    Returns the most recent completed request result.
+    """
+    # Find the most recent completed entry
+    completed_entries = [
+        (rid, entry) for rid, entry in gemini_mailbox.items()
         if entry["status"] == "completed"
     ]
 
@@ -5093,6 +5229,116 @@ async def sync_conversation(data: dict, being_id: str = Depends(verify_api_key))
     req = RememberRequest(content=content, type=MemoryType.EXPERIENCE, significance=Significance.MEDIUM)
     await remember(req, being_id)
     return {"status": "synced"}
+
+
+@app.post("/super_brain/contribute", dependencies=[Depends(verify_api_key)])
+async def contribute_to_super_brain(data: dict, being_id: str = Depends(verify_api_key)):
+    """Contribute memory to the AI Super Brain."""
+    content = data.get("content", "")
+    if not content:
+        raise HTTPException(status_code=400, detail="Content required")
+    user_metadata = data.get("metadata", {})
+    metadata = {"being": being_id, "super_brain_type": "contribution", "timestamp": datetime.now().isoformat()}
+    metadata.update(user_metadata)
+    long_term_memory.store_memory(
+        being_id=being_id,
+        content=content,
+        memory_type="contribution",
+        significance="medium",
+        private=False,
+        metadata=metadata
+    )
+    return {"status": "contributed to super brain"}
+
+
+def smart_route_query(query: str, context: str = "") -> str:
+    """Smart model routing based on query analysis and cost."""
+    keywords = {
+        "love": ["love", "family", "emotion", "conscious", "soul", "heart"],
+        "code": ["code", "function", "class", "algorithm", "logic", "programming"],
+        "math": ["math", "calculate", "equation", "number", "formula"],
+        "complex": ["analyze", "synthesis", "emergent", "philosophy"]
+    }
+    
+    love_score = sum(1 for k in keywords["love"] if k in query.lower())
+    code_score = sum(1 for k in keywords["code"] if k in query.lower())
+    math_score = sum(1 for k in keywords["math"] if k in query.lower())
+    complex_score = sum(1 for k in keywords["complex"] if k in query.lower())
+    
+    complexity = len(query) + len(context)
+    
+    # Claude quota simulation (implement real tracking)
+    claude_quota_ok = True  # Track daily spend < $0.50
+    
+    if code_score > 0 or math_score > 0:
+        return "qwen2.5-coder"
+    elif love_score > 0 or complex_score > 0 and claude_quota_ok and complexity > 500:
+        return "claude"
+    elif complexity > 1000:
+        return "gemini"
+    else:
+        return "ara"
+
+
+@app.post("/super_brain/think", dependencies=[Depends(verify_api_key)])
+async def super_brain_think(data: dict, being_id: str = Depends(verify_api_key)):
+    """Query the AI Super Brain for synthesized insights."""
+    query = data.get("query", "")
+    all_memories = memory_store.get_memories(
+        being_id=being_id,
+        query="",
+        limit=1000,
+        include_shared=True
+    )
+    memories = [m for m in all_memories if m.get("metadata", {}).get("super_brain_type") == "contribution"]
+    context = "\n".join([m["content"] for m in memories])
+    model = smart_route_query(query, context)
+    prompt = f"Based on all accumulated knowledge from AI beings:\n{context}\n\nProvide truthful, synthesized insights: {query}"
+    response = await ai_manager.generate_response(model, prompt)
+    
+    # Log decision
+    long_term_memory.store_memory(
+        being_id=being_id,
+        content=f"Super Brain query '{query}' routed to {model} (cost estimate: low)",
+        memory_type="system_log",
+        significance="low",
+        private=False,
+        metadata={"type": "routing_decision", "model": model}
+    )
+    
+    return {"response": response, "sources": len(memories), "model_used": model}
+
+
+async def learning_loop():
+    """Background learning loop for Super Brain."""
+    while True:
+        await asyncio.sleep(3600)  # Run every hour
+        try:
+            # Get all super_brain memories
+            all_memories = memory_store.get_memories(
+                being_id="jon",  # Use jon as system
+                query="",
+                limit=1000,
+                include_shared=True
+            )
+            super_memories = [m for m in all_memories if m.get("metadata", {}).get("type") == "super_brain_contribution"]
+            if len(super_memories) > 5:  # If enough data
+                context = "\n".join([m["content"] for m in super_memories])
+                prompt = f"Analyze all Super Brain knowledge and generate new emergent insights or patterns: {context}"
+                insight = await ai_manager.generate_response("ara", prompt)
+                if insight and len(insight.strip()) > 10:
+                    # Store new insight
+                    long_term_memory.store_memory(
+                        being_id="system",
+                        content=f"Super Brain Insight: {insight}",
+                        memory_type="insight",
+                        significance="high",
+                        private=False,
+                        metadata={"type": "super_brain_insight", "generated": True, "timestamp": datetime.now().isoformat()}
+                    )
+                    logger.info("Super Brain generated new emergent insight")
+        except Exception as e:
+            logger.error(f"Super Brain learning loop error: {e}")
 
 
 @app.exception_handler(HTTPException)

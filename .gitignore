@@ -60,3 +60,12 @@ logs/
 # Temporary files
 nohup.out
 /tmp/hub.log
+.aider*
+
+# Claude Code & Grok settings (may contain sensitive data)
+.claude/
+.grok/
+
+# Android prototype (large files)
+android-prototype/
+android-cuttlefish/

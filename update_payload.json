@@ -1,7 +1,5 @@
 {
   "name": "Multi-Model Sync Workflow",
-  "id": "vD8wOYTocebwBhhn",
-  "active": true,
   "nodes": [
     {
       "parameters": {
@@ -12,8 +10,12 @@
       "name": "Sync Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [0, 0],
-      "webhookId": "multi-sync-webhook"
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "multi-sync-webhook",
+      "id": "b1631c19-522e-4c6e-a03b-85f2a61c1b99"
     },
     {
       "parameters": {
@@ -28,38 +30,30 @@
               "value": "Starting multi-model sync..."
             }
           ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "X-API-Key",
-              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
-            }
-          ]
         }
       },
       "name": "Initialize Sync",
       "type": "n8n-nodes-base.set",
       "typeVersion": 1,
-      "position": [200, 0]
+      "position": [
+        200,
+        0
+      ],
+      "id": "a5f28722-3daa-4656-a4a3-8f1d776b4701"
     },
     {
       "parameters": {
-        "mode": "iterate",
-        "values": {
-          "string": [
-            {
-              "name": "model",
-              "value": "={{ $node[\"Initialize Sync\"].json.models.split(',') }}"
-            }
-          ]
-        }
+        "batchSize": 1,
+        "options": {}
       },
       "name": "Model Loop",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 1,
-      "position": [400, 0]
+      "position": [
+        400,
+        0
+      ],
+      "id": "6f908d9e-8186-41d8-b15e-39941171ab33"
     },
     {
       "parameters": {
@@ -68,14 +62,18 @@
       "name": "Setup Model Config",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [600, -200]
+      "position": [
+        600,
+        -200
+      ],
+      "id": "ea1cd415-c7f0-4705-bd0a-7798fbf5476c"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://localhost:9003/recall",
-        "sendBody": true,
-        "bodyParameters": {
+        "method": "GET",
+        "url": "http://localhost:9003/local_context",
+        "sendQuery": true,
+        "queryParameters": {
           "parameters": [
             {
               "name": "model",
@@ -83,33 +81,19 @@
             },
             {
               "name": "limit",
-              "value": "5"
-            }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "X-API-Key",
-              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
+              "value": "10"
             }
           ]
         }
       },
-      "name": "Get Hub Context",
+      "name": "Get Local Context",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [800, -400]
-    },
-    {
-      "parameters": {
-        "functionCode": "const messages = $json.messages || [];\nconst approxTokens = JSON.stringify(messages).length / 4;\nconsole.log(`Token count for ${$json.model}: ${approxTokens}`);\nif (approxTokens > 100000) {\n  const truncated = messages.slice(-5);\n  return [{ json: { ...$json, messages: truncated, truncated: true } }];\n} else {\n  return [{ json: { ...$json, truncated: false } }];\n}"
-      },
-      "name": "Truncate Messages",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1000, -400]
+      "position": [
+        800,
+        -400
+      ],
+      "id": "80d89464-c290-47e0-a19f-c8e0377dc816"
     },
     {
       "parameters": {
@@ -124,31 +108,11 @@
       "name": "Route Grok Sync",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [1000, -200]
-    },
-    {
-      "parameters": {
-        "functionCode": "const messages = $json.messages || [];\nconst approxTokens = JSON.stringify(messages).length / 4;\nconsole.log(`Token count for ${$json.model}: ${approxTokens}`);\nif (approxTokens > 100000) {\n  const summary = messages.map(m => m.content).join(' ').slice(0, 5000);\n  const truncatedMessages = [{ role: 'user', content: `Summary: ${summary}` }];\n  return [{ json: { ...$json, messages: truncatedMessages, truncated: true, skipCloud: true } }];\n} else {\n  return [{ json: { ...$json, truncated: false, skipCloud: false } }];\n}"
-      },
-      "name": "Truncate for Cloud",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1200, -200]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "boolean": [
-            {
-              "value1": "={{ !$json.skipCloud && $env.GROK_API_KEY }}"
-            }
-          ]
-        }
-      },
-      "name": "Check Cloud Ready",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [1400, -200]
+      "position": [
+        1000,
+        -200
+      ],
+      "id": "f7cbf168-7fbe-4586-bcaa-a87b6cb24314"
     },
     {
       "parameters": {
@@ -189,31 +153,11 @@
       "name": "Sync Local Grok to Cloud",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1200, -300]
-    },
-    {
-      "parameters": {
-        "functionCode": "const success = $node['Sync Local Grok to Cloud'].response.statusCode === 200;\nreturn [{ json: { ...$json, cloudSyncSuccess: success } }];"
-      },
-      "name": "Check Cloud Success",
-      "type": "n8n-nodes-base.function",
-      "typeVersion": 1,
-      "position": [1400, -300]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "boolean": [
-            {
-              "value1": "={{ $json.cloudSyncSuccess }}"
-            }
-          ]
-        }
-      },
-      "name": "If Cloud Success",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [1600, -300]
+      "position": [
+        1200,
+        -300
+      ],
+      "id": "e5c3cada-d525-4aa3-9992-c5811ecf1d04"
     },
     {
       "parameters": {
@@ -231,21 +175,39 @@
               "value": "={{ $json.choices[0].message.content }}"
             }
           ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "X-API-Key",
-              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
-            }
-          ]
         }
       },
       "name": "Store Cloud Response",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1400, -300]
+      "position": [
+        1400,
+        -300
+      ],
+      "id": "294cde9c-943e-492a-ad5f-9beb504cec18"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.remoteEndpoint }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "10"
+            }
+          ]
+        }
+      },
+      "name": "Get Remote Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        800,
+        0
+      ],
+      "id": "0e616e9d-ef37-402b-bed0-67124239b118"
     },
     {
       "parameters": {
@@ -274,10 +236,14 @@
           "retryInterval": 2000
         }
       },
-      "name": "Sync Hub to Ollama",
+      "name": "Sync Remote to Local",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1000, 100]
+      "position": [
+        1000,
+        100
+      ],
+      "id": "54aa7241-a9a2-4442-a711-9f2af90ff3dc"
     },
     {
       "parameters": {
@@ -295,21 +261,16 @@
               "value": "={{ $json.message.content }}"
             }
           ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "X-API-Key",
-              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
-            }
-          ]
         }
       },
-      "name": "Store Ollama Response",
+      "name": "Store Local Response",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1200, 100]
+      "position": [
+        1200,
+        100
+      ],
+      "id": "cfe5ae70-afc1-4fb1-b6c2-8529993953b1"
     },
     {
       "parameters": {
@@ -339,21 +300,16 @@
               "value": "synced"
             }
           ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "X-API-Key",
-              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
-            }
-          ]
         }
       },
       "name": "Log Sync Status",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [1600, 0]
+      "position": [
+        1600,
+        0
+      ],
+      "id": "857fad87-7282-48c8-83d5-0500df3b6a42"
     },
     {
       "parameters": {
@@ -362,38 +318,26 @@
       "name": "Generate Summary",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1800, 0]
+      "position": [
+        1800,
+        0
+      ],
+      "id": "b0dcef4f-c5bc-43a9-b1c5-9f35f039ebf8"
     },
     {
       "parameters": {},
       "name": "Respond",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2000, 0]
-    },
-    {
-      "parameters": {
-        "cronExpression": "0 * * * *"
-      },
-      "name": "Hourly Sync Cron",
-      "type": "n8n-nodes-base.cron",
-      "typeVersion": 1,
-      "position": [0, 200]
+      "position": [
+        2000,
+        0
+      ],
+      "id": "a48a32f4-4dea-42fa-852d-084e015b7fd6"
     }
   ],
   "connections": {
     "Sync Webhook": {
-      "main": [
-        [
-          {
-            "node": "Initialize Sync",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Hourly Sync Cron": {
       "main": [
         [
           {
@@ -430,32 +374,21 @@
       "main": [
         [
           {
-            "node": "Get Hub Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Hub Context": {
-      "main": [
-        [
-          {
-            "node": "Truncate Messages",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Truncate Messages": {
-      "main": [
-        [
-          {
-            "node": "Sync Hub to Ollama",
+            "node": "Get Local Context",
             "type": "main",
             "index": 0
           },
+          {
+            "node": "Get Remote Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Local Context": {
+      "main": [
+        [
           {
             "node": "Route Grok Sync",
             "type": "main",
@@ -468,17 +401,6 @@
       "main": [
         [
           {
-            "node": "Truncate for Cloud",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Truncate for Cloud": {
-      "main": [
-        [
-          {
             "node": "Sync Local Grok to Cloud",
             "type": "main",
             "index": 0
@@ -487,28 +409,6 @@
       ]
     },
     "Sync Local Grok to Cloud": {
-      "main": [
-        [
-          {
-            "node": "Check Cloud Success",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Cloud Success": {
-      "main": [
-        [
-          {
-            "node": "If Cloud Success",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "If Cloud Success": {
       "main": [
         [
           {
@@ -530,18 +430,29 @@
         ]
       ]
     },
-    "Sync Hub to Ollama": {
+    "Get Remote Context": {
       "main": [
         [
           {
-            "node": "Store Ollama Response",
+            "node": "Sync Remote to Local",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Store Ollama Response": {
+    "Sync Remote to Local": {
+      "main": [
+        [
+          {
+            "node": "Store Local Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Local Response": {
       "main": [
         [
           {
@@ -575,5 +486,8 @@
       ]
     }
   },
-  "settings": {}
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
 }

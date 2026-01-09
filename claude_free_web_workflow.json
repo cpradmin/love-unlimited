@@ -1,0 +1,416 @@
+{
+  "name": "Claude Free Web Query",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "claude-free-web",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "claude-free-web-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract query\nconst query = $json.query;\n\nreturn { json: { query } };"
+      },
+      "id": "extract-query",
+      "name": "Extract Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "launch",
+        "browser": "chromium",
+        "headless": true
+      },
+      "id": "launch-browser",
+      "name": "Launch Browser",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "operation": "goto",
+        "url": "https://claude.ai/chat"
+      },
+      "id": "goto-claude",
+      "name": "Go to Claude",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "operation": "click",
+        "selector": "button[data-testid=\"login-button\"]"
+      },
+      "id": "click-login",
+      "name": "Click Login",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "operation": "fill",
+        "selector": "input[name=\"email\"]",
+        "value": "{{ $credentials.claudeFree.email }}"
+      },
+      "id": "fill-email",
+      "name": "Fill Email",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [1340, 300],
+      "connectInputData": true,
+      "credentials": {
+        "playwright": "Claude Free Credentials"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "fill",
+        "selector": "input[name=\"password\"]",
+        "value": "{{ $credentials.claudeFree.password }}"
+      },
+      "id": "fill-password",
+      "name": "Fill Password",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [1560, 300],
+      "connectInputData": true,
+      "credentials": {
+        "playwright": "Claude Free Credentials"
+      }
+    },
+    {
+      "parameters": {
+        "operation": "click",
+        "selector": "button[type=\"submit\"]"
+      },
+      "id": "submit-login",
+      "name": "Submit Login",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [1780, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "operation": "waitForSelector",
+        "selector": "textarea[data-testid=\"prompt-textarea\"]"
+      },
+      "id": "wait-for-chat",
+      "name": "Wait for Chat",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [2000, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "operation": "fill",
+        "selector": "textarea[data-testid=\"prompt-textarea\"]",
+        "value": "{{ $json.query }}"
+      },
+      "id": "send-query",
+      "name": "Send Query",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [2220, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "operation": "press",
+        "selector": "textarea[data-testid=\"prompt-textarea\"]",
+        "key": "Enter"
+      },
+      "id": "submit-query",
+      "name": "Submit Query",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [2440, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "operation": "waitForSelector",
+        "selector": "div[data-message-author-role=\"assistant\"]",
+        "timeout": 60000
+      },
+      "id": "wait-response",
+      "name": "Wait for Response",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [2660, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "operation": "getText",
+        "selector": "div[data-message-author-role=\"assistant\"]:last-child"
+      },
+      "id": "extract-response",
+      "name": "Extract Response",
+      "type": "@n8n/n8n-nodes-langchain.playwright",
+      "typeVersion": 1,
+      "position": [2880, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:9003/remember",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.query }} - Claude Free Web: {{ $json.text }}"
+            },
+            {
+              "name": "type",
+              "value": "claude_free_web"
+            },
+            {
+              "name": "significance",
+              "value": "medium"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
+            }
+          ]
+        }
+      },
+      "id": "log-to-hub",
+      "name": "Log to Hub",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3100, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return { json: { response: $json.text, query: $json.query } };"
+      },
+      "id": "format-response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3320, 300],
+      "connectInputData": true
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "response",
+              "value": "={{ $json.response }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "response-node",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3540, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Query": {
+      "main": [
+        [
+          {
+            "node": "Launch Browser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Launch Browser": {
+      "main": [
+        [
+          {
+            "node": "Go to Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Go to Claude": {
+      "main": [
+        [
+          {
+            "node": "Click Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Click Login": {
+      "main": [
+        [
+          {
+            "node": "Fill Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fill Email": {
+      "main": [
+        [
+          {
+            "node": "Fill Password",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fill Password": {
+      "main": [
+        [
+          {
+            "node": "Submit Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Login": {
+      "main": [
+        [
+          {
+            "node": "Wait for Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Chat": {
+      "main": [
+        [
+          {
+            "node": "Send Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Query": {
+      "main": [
+        [
+          {
+            "node": "Submit Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Query": {
+      "main": [
+        [
+          {
+            "node": "Wait for Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Response": {
+      "main": [
+        [
+          {
+            "node": "Extract Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Response": {
+      "main": [
+        [
+          {
+            "node": "Log to Hub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Hub": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "claude-free-web"
+  },
+  "tags": []
+}

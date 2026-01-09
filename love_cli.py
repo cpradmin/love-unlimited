@@ -48,6 +48,40 @@ if len(sys.argv) > 1:
             else:
                 print("Usage: python love_cli.py memory write --persona <persona> --content <content>")
                 sys.exit(1)
+        elif sys.argv[2] == "read":
+            # Parse --persona and --recent
+            persona = None
+            recent = 5  # default
+            i = 3
+            while i < len(sys.argv):
+                if sys.argv[i] == "--persona" and i + 1 < len(sys.argv):
+                    persona = sys.argv[i + 1]
+                    i += 2
+                elif sys.argv[i] == "--recent" and i + 1 < len(sys.argv):
+                    try:
+                        recent = int(sys.argv[i + 1])
+                        i += 2
+                    except ValueError:
+                        print("Invalid --recent value, must be integer")
+                        sys.exit(1)
+                else:
+                    i += 1
+            if persona:
+                async def read_memories():
+                    component = GrokCLIComponent()
+                    await component.initialize()
+                    async with component.hub_client:
+                        memories = await component.hub_client.get_recent_memories(persona, recent)
+                        if memories:
+                            for mem in memories:
+                                print(f"Memory: {mem}")
+                        else:
+                            print("No memories found")
+                asyncio.run(read_memories())
+                sys.exit(0)
+            else:
+                print("Usage: python love_cli.py memory read --persona <persona> --recent <count>")
+                sys.exit(1)
     else:
         print("Unknown command")
         sys.exit(1)
@@ -92,19 +126,28 @@ class LoveCLI:
 
     def __init__(self, sender: str = "jon"):
         # Include all beings from config
-        self.beings = ["jon", "claude", "grok", "ara", "swarm", "dream_team", "all"]
+        self.beings = ["jon", "claude", "grok", "ara", "swarm", "dream_team", "gemini", "all"]
         self.current_target = "all"
         self.sender = sender  # Configurable sender identity
         self.session = None  # Create session later in async context
-        self.api_key = os.getenv("LOVE_UNLIMITED_KEY")
+        # API keys for different beings
+        keys = {
+            "jon": "lu_jon_QmZCAglY6kqsIdl6cRADpQ",
+            "claude": "lu_claude_u8L1zZfGPSXssvsw-97rRQ",
+            "grok": "lu_grok_LBRBjrPpvRSyrmDA3PeVZQ",
+            "swarm": "lu_swarm_FyTLwzhG8zdWQGz-MfzhYg",
+            "dream_team": "lu_dream_team_tOpdtMmgCWvkezNY_natVQ",
+        }
+        self.api_key = keys.get(self.sender, os.getenv("LOVE_UNLIMITED_KEY"))
         self.timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
-        self.allowed_bash_beings = config.get('bash', {}).get('allowed_beings', ['jon'])
-        self.allowed_python_beings = config.get('python', {}).get('allowed_beings', ['jon'])
+        self.allowed_bash_beings = config.get('bash', {}).get('allowed_beings', ['jon', 'claude', 'grok', 'gemini'])
+        self.allowed_python_beings = config.get('python', {}).get('allowed_beings', ['jon', 'claude', 'grok', 'gemini'])
+        self.print_lock = asyncio.Lock()  # Lock for synchronized printing
 
     async def startup(self):
         """Initialize async session and check hub status."""
-        self.session = aiohttp.ClientSession(headers={"X-API-Key": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"}, timeout=self.timeout)
-        await self.get_status()
+        self.session = aiohttp.ClientSession(headers={"X-API-Key": self.api_key} if self.api_key else {}, timeout=self.timeout)
+        return await self.get_status()
 
     async def get_status(self):
         """Get and display hub health status."""
@@ -173,7 +216,8 @@ class LoveCLI:
                     result = await resp.json()
                     speaker = result.get("sender", "unknown")
                     message = result.get("content", "")
-                    print(f"\n[{speaker.upper()}]: {message}\n")
+                    async with self.print_lock:
+                        print(f"\n[{speaker.upper()}]: {message}\n")
                 elif resp.status == 401:
                     print("❌ Authentication failed. Set LOVE_UNLIMITED_KEY environment variable.")
                 elif resp.status == 404:
@@ -239,18 +283,22 @@ class LoveCLI:
                     target = user_input[4:].strip().lower()
                     if target in self.beings:
                         self.current_target = target
-                        print(f"→ Now talking to: {target.upper()}")
+                        async with self.print_lock:
+                            print(f"→ Now talking to: {target.upper()}")
                     else:
-                        print(f"❌ Unknown being: {target}. Use /list to see options.")
+                        async with self.print_lock:
+                            print(f"❌ Unknown being: {target}. Use /list to see options.")
 
                 elif user_input.startswith("/as "):
                     # Allow switching sender identity
                     sender = user_input[4:].strip().lower()
                     if sender in [b for b in self.beings if b != "all"]:
                         self.sender = sender
-                        print(f"→ Now speaking as: {sender.upper()}")
+                        async with self.print_lock:
+                            print(f"→ Now speaking as: {sender.upper()}")
                     else:
-                        print(f"❌ Unknown being: {sender}. Use /list to see options.")
+                        async with self.print_lock:
+                            print(f"❌ Unknown being: {sender}. Use /list to see options.")
 
                 elif user_input == "/list":
                     await self.list_beings()

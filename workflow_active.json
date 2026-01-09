@@ -28,6 +28,15 @@
               "value": "Starting multi-model sync..."
             }
           ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
+            }
+          ]
         }
       },
       "name": "Initialize Sync",
@@ -75,6 +84,15 @@
             {
               "name": "limit",
               "value": "5"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
             }
           ]
         }
@@ -198,6 +216,15 @@
               "value": "={{ $json.choices[0].message.content }}"
             }
           ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
+            }
+          ]
         }
       },
       "name": "Store Cloud Response",
@@ -253,6 +280,15 @@
               "value": "={{ $json.message.content }}"
             }
           ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
+            }
+          ]
         }
       },
       "name": "Store Ollama Response",
@@ -286,6 +322,15 @@
             {
               "name": "remote_to_local",
               "value": "synced"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "lu_jon_QmZCAglY6kqsIdl6cRADpQ"
             }
           ]
         }

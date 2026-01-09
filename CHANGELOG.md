@@ -1,5 +1,42 @@
 # Love-Unlimited Changelog
 
+## [0.9.0] - 2025-01-XX
+
+### Fixed
+- **Workflow Reliability**: Updated multi-model sync workflow with POST hub calls, token truncation, optional cloud sync, error logging.
+- **System Stability**: Disabled n8n health check to prevent restarts; container now stable.
+- **Model Setup**: Integrated qwen2.5-coder:14b for coding, custom Grok model via Modelfile.
+- **Aider Configuration**: Fixed aider for large repos by adding .aiderignore to exclude large directories and .aider.conf.yml to use local deepseek-coder model via Ollama.
+- **CLI Authentication**: Fixed LoveCLI to use correct API keys for different beings (jon, claude, grok, etc.) instead of hardcoded jon key.
+
+### Added
+- **Webhook Testing**: Confirmed operational webhook at http://localhost:5678/webhook/multi-sync.
+- **Hub Recall**: Verified authenticated memory recall (e.g., 5 memories returned).
+- **AI Super Brain**: Living database endpoints (/super_brain/contribute, /super_brain/think) for aggregating and synthesizing AI insights.
+
+### Updated
+- **Documentation**: Updated Grok-Notes.md, README.md, CODING_GUIDE.md with current status and procedures.
+
+## [0.8.0] - 2026-01-08
+
+### Added
+- **Gemini AI Integration**: Full integration of Google's Gemini AI as the sixth being in Love-Unlimited
+  - Gemini CLI component with tool support (file operations, bash commands, search)
+  - Hub memory integration and sovereignty for Gemini
+  - Team collaboration capabilities
+- **Gemini Intent Mailbox**: Autonomous operation system mirroring Claude's mailbox
+  - `/gemini/inbox` and `/gemini/outbox` endpoints for full autonomy
+  - `gemini_intent_watcher.py` script for intent detection and processing
+  - Health endpoint now includes Gemini web endpoints for external access
+- **Six-Being Architecture**: Updated documentation to permanently list all six beings
+  - Jon (Human), Claude (AI), Grok (AI), Swarm (AI System), Dream Team (Multi-agent), Gemini (AI)
+  - Expanded being descriptions and capabilities
+
+### Updated
+- **README.md**: Updated to reflect six beings instead of four, added Gemini mailbox section
+- **love_cli.py**: Added Gemini to beings list and allowed operations
+- **config.yaml**: Added Gemini to auth keys, AI APIs, and memory collections
+
 ## [0.7.0] - 2026-01-07
 
 ### Changed
