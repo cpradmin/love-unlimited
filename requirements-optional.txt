@@ -1,0 +1,41 @@
+# Love-Unlimited - Optional Dependencies
+# Install only if you need these specific features
+
+# ============================================
+# WEB SCRAPING (Grok batch export tools)
+# ============================================
+# Used in: batch_export_grok_conversations.py, debug_grok.py
+# Install with: pip install -r requirements-optional.txt
+selenium>=4.25.0              # Updated from 4.15.2 (12 versions behind)
+webdriver-manager>=4.0.1      # Browser driver management
+
+# ============================================
+# WEBRTC SCREEN SHARING
+# ============================================
+# Used in: hub/main.py for /webcli screen share feature
+# WARNING: Requires C compiler and system dependencies
+# Only install if screen sharing is needed
+aiortc>=1.6.0                 # WebRTC support
+
+# ============================================
+# TEXT-TO-SPEECH
+# ============================================
+# Used in: hub/main.py for TTS features
+# Requires system-level speech engines (espeak, sapi5, nsss)
+pyttsx3>=2.90                 # Cross-platform TTS
+
+# ============================================
+# REDIS (Alternative short-term memory)
+# ============================================
+# Only if using Redis instead of in-memory short-term storage
+# Currently commented out in requirements.txt
+redis>=5.0.1                  # Redis client
+aioredis>=2.0.1               # Async Redis support
+
+# ============================================
+# SECURITY - JWT/PASSWORD (Future use)
+# ============================================
+# If you need JWT tokens or password hashing in the future
+# Current auth uses simple API keys only
+PyJWT>=2.10.0                 # JWT tokens (replaces unmaintained python-jose)
+argon2-cffi>=23.1.0           # Password hashing (modern alternative to bcrypt)
