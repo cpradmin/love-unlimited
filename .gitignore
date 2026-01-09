@@ -24,6 +24,7 @@ wheels/
 .venv/
 venv/
 venv2/
+hub_env/
 ENV/
 env/
 
