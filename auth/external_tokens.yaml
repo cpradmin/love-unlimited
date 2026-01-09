@@ -24,6 +24,17 @@ ext_4e2A6tvA46uGFMAgSaFjfWZOD6My7kiY:
   permissions:
   - recall
   rate_limit: 100
+ext_CvR3Djh5t-4rikhTb-_sS5mF1L00xgfv:
+  allowed_beings:
+  - claude
+  - jon
+  created: '2026-01-09'
+  description: Testing external recall
+  enabled: false
+  name: Test Integration
+  permissions:
+  - recall
+  rate_limit: 100
 ext_Hogkg1zrWfWNJbfjCaIcUgBkaR5F11UU:
   allowed_beings:
   - claude
