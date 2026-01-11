@@ -54,9 +54,9 @@ logs/
 # ChromaDB telemetry
 .chroma/
 
-# Auth (keep template, ignore actual keys)
-# auth/api_keys.yaml
-# auth/external_tokens.yaml
+# Auth files with sensitive keys
+auth/api_keys.yaml
+auth/external_tokens.yaml
 
 # Temporary files
 nohup.out
@@ -70,3 +70,7 @@ nohup.out
 # Android prototype (large files)
 android-prototype/
 android-cuttlefish/
+
+# Large documentation files (too large for Tabby indexing)
+Grok-JMB/
+Grok-Notes.md
