@@ -291,6 +291,7 @@ def main():
                        help='URL to browse')
     parser.add_argument('--depth', type=int, default=1, help='Browsing depth')
     parser.add_argument('--max-pages', type=int, default=1, help='Maximum pages to visit')
+    parser.add_argument('--use-katana', action='store_true', help='Use Katana for advanced crawling')
     parser.add_argument('--share', action='store_true', help='Share findings with all beings')
 
     args = parser.parse_args()
@@ -299,7 +300,7 @@ def main():
     agent = WebBrowsingAgent(api_key="lu_grok_LBRBjrPpvRSyrmDA3PeVZQ" if args.share else None)
 
     # Browse the specified URL
-    findings = agent.browse_url(args.url, depth=args.depth, max_pages=args.max_pages)
+    findings = agent.browse_url(args.url, depth=args.depth, max_pages=args.max_pages, use_katana=args.use_katana)
 
     print("Browsing Results:")
     print(json.dumps(findings, indent=2))
