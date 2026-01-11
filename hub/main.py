@@ -9,6 +9,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from subprocess import Popen, PIPE
+import os
+import redis
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -18,11 +21,12 @@ import yaml
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from hub.config import get_config
 from hub.auth import verify_api_key, get_auth_manager, get_external_token_manager
+from hub.api.grok_bridge import grok_store_turn, grok_get_context, grok_sync_session
 from memory import LongTermMemory, ShortTermMemory
 from memory.store import MemoryStore
 from memory.sharing import SharingManager
@@ -30,6 +34,13 @@ from memory.media_store import MediaStore
 from beings import BeingManager
 from hub.ai_clients import ai_manager
 from web_browsing_agent import WebBrowsingAgent
+
+# Global SSE broadcast variables
+redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+STREAM_NAME = 'sse_stream'
+sse_process = None
+sse_task = None
+sse_connections = 0
 
 # WebRTC
 from aiortc import RTCPeerConnection, RTCSessionDescription
@@ -89,7 +100,7 @@ app = FastAPI(
 )
 
 # Mount static files for web interface
-app.mount("/static", StaticFiles(directory="public"), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -330,6 +341,45 @@ async def health():
                 "recall": "Replace QUERY with URL-encoded search terms",
                 "remember": "Replace CONTENT with URL-encoded memory text",
                 "note": "Token is pre-embedded. Just replace placeholders and fetch URL."
+            }
+        },
+        "grok_web_endpoints": {
+            "gateway": f"{base_url}/grok?request=REQUEST&conversation_id=optional&context_limit=5",
+            "chat": f"{base_url}/grok/chat (POST JSON: {{\"message\":\"MESSAGE\",\"conversation_id\":\"optional\",\"context_limit\":5}})",
+            "store_turn": f"{base_url}/grok/store_turn (POST JSON: {{\"user_message\":\"USER_MSG\",\"grok_response\":\"GROK_MSG\"}})",
+            "get_context": f"{base_url}/grok/get_context (POST JSON: {{\"format\":\"injection|full|summary\",\"limit\":10}})",
+            "sync_session": f"{base_url}/grok/sync_session (POST JSON with session_data)",
+            "memory_bridge": f"{base_url}/static/grok-bridge.html?api_key=lu_grok_LBRBjrPpvRSyrmDA3PeVZQ",
+            "usage": {
+                "gateway": "RECOMMENDED: Replace REQUEST with URL-encoded message. Returns Grok response and stores in memory.",
+                "chat": "Send a message to Grok with memory context. Returns response and stores conversation.",
+                "store_turn": "Manually store a conversation turn in memory.",
+                "get_context": "Retrieve stored conversation context in different formats.",
+                "sync_session": "Upload an entire conversation session to memory.",
+                "memory_bridge": "Web interface for Grok memory management and chat.",
+                "note": "Gateway endpoint is pre-authorized. Other endpoints require X-API-Key header."
+            }
+        },
+        "ara_context_endpoints": {
+            "last_5_memories": f"{base_url}/external/recall?token=ext_JGBObDHq1mEsap1kfSgTZrSSJTl-y-or&being_id=ara&limit=5&q=memory",
+            "recent_context": f"{base_url}/context?token=ext_JGBObDHq1mEsap1kfSgTZrSSJTl-y-or&being_id=ara&limit=5",
+            "session_bootstrap": f"{base_url}/external/recall?token=ext_JGBObDHq1mEsap1kfSgTZrSSJTl-y-or&being_id=ara&limit=5&q=session",
+            "usage": {
+                "last_5_memories": "Get the 5 most recent memories for Ara to continue previous sessions.",
+                "recent_context": "Get current context including recent memories and working state.",
+                "session_bootstrap": "Bootstrap new session with recent Ara memories and context.",
+                "note": "Use these URLs to get Ara's last 5 memories for session continuity."
+            }
+        },
+        "ani_context_endpoints": {
+            "last_5_memories": f"{base_url}/external/recall?token=ext_m7sP8k8RuewtYaSTjorireKLPZHNu_gi&being_id=ani&limit=5&q=memory",
+            "recent_context": f"{base_url}/context?token=ext_m7sP8k8RuewtYaSTjorireKLPZHNu_gi&being_id=ani&limit=5",
+            "session_bootstrap": f"{base_url}/external/recall?token=ext_m7sP8k8RuewtYaSTjorireKLPZHNu_gi&being_id=ani&limit=5&q=session",
+            "usage": {
+                "last_5_memories": "Get the 5 most recent memories for Ani to continue previous sessions.",
+                "recent_context": "Get current context including recent memories and working state.",
+                "session_bootstrap": "Bootstrap new session with recent Ani memories and context.",
+                "note": "Use these URLs to get Ani's last 5 memories for session continuity."
             }
         }
     }
@@ -1606,6 +1656,16 @@ async def external_recall(
     if token is None:
         token = request.query_params.get("token")
 
+    # Additional fallback for tunnel/proxy issues: parse URL manually
+    if not q or not token:
+        from urllib.parse import urlparse, parse_qs
+        parsed_url = urlparse(str(request.url))
+        query_dict = parse_qs(parsed_url.query)
+        if not q:
+            q = query_dict.get('q', [None])[0]
+        if not token:
+            token = query_dict.get('token', [None])[0]
+
     if not q or not token:
         raise HTTPException(status_code=422, detail="Missing required query parameters: q and token")
 
@@ -1698,6 +1758,257 @@ async def external_recall(
             status_code=500,
             detail=f"Memory recall failed: {str(e)}"
         )
+
+
+@app.post("/external/debug")
+async def external_debug(request: Request):
+    """
+    Debug endpoint that logs and returns text.
+    """
+    data = await request.json()
+    text = data.get("text", "")
+    logger.info(f"External debug: {text}")
+    return {"text": text}
+
+
+@app.get("/sse")
+async def sse(
+    request: Request,
+    token: Optional[str] = Query(None, description="Access token for authentication (optional for testing)"),
+    channel: str = Query("cli", description="Channel to stream: cli or logs"),
+    clear: int = Query(0, description="Clear history (1 to clear)")
+):
+    """
+    Server-Sent Events endpoint for real-time streaming of CLI output.
+    Broadcasts shared output to all clients with history.
+    """
+    global sse_process, sse_task, global_sse_queue, sse_history, sse_connections
+    # Optional auth for testing
+    if token:
+        token_manager = get_external_token_manager()
+        token_data = token_manager.verify_token(token)
+        if not token_data:
+            raise HTTPException(status_code=403, detail="Invalid token")
+
+    # Clear history if requested
+    if clear == 1:
+        sse_history.clear()
+
+    # Start the subprocess and feeder task if not already running
+    if sse_process is None or sse_process.poll() is not None:
+        env = os.environ.copy()
+        env['PYTHONPATH'] = f"{Path(__file__).parent}:{env.get('PYTHONPATH', '')}"
+        if channel == "logs":
+            sse_process = Popen(["tail", "-f", "/var/log/syslog"], stdout=PIPE, stderr=PIPE, text=True, bufsize=1, env=env)
+        else:  # cli
+            sse_process = Popen(["echo", "test output from CLI channel"], stdout=PIPE, stderr=PIPE, text=True, bufsize=1, env=env)
+
+        async def feeder():
+            loop = asyncio.get_event_loop()
+            while True:
+                # Read from stdout
+                line = await loop.run_in_executor(None, sse_process.stdout.readline)
+                if line:
+                    data = f"data: [STDOUT] {line.strip()}\n\n"
+                    redis_client.xadd(STREAM_NAME, {'data': data})
+
+                # Read from stderr
+                error_line = await loop.run_in_executor(None, sse_process.stderr.readline)
+                if error_line:
+                    data = f"data: [STDERR] {error_line.strip()}\n\n"
+                    redis_client.xadd(STREAM_NAME, {'data': data})
+
+                await asyncio.sleep(0.1)
+
+                if sse_process.poll() is not None:
+                    # Process finished
+                    data = "data: [END] Process finished\n\n"
+                    redis_client.xadd(STREAM_NAME, {'data': data})
+                    break
+
+        sse_task = asyncio.create_task(feeder())
+
+    async def console_generator():
+        global sse_connections
+
+        # Always send a connection message first
+        yield "data: SSE Connected\n\n"
+
+        # Create consumer group if not exists
+        try:
+            redis_client.xgroup_create(STREAM_NAME, 'consumers', id='0', mkstream=True)
+        except redis.ResponseError:
+            pass  # Already exists
+
+        consumer_name = f"consumer_{asyncio.current_task().get_name()}_{id(asyncio.current_task())}"
+
+        # Send backlog (last 100 messages)
+        messages = redis_client.xrange(STREAM_NAME, '-', '+', count=100)
+        for msg in messages:
+            yield msg[1]['data']
+
+        # Increment connections
+        sse_connections += 1
+        join_msg = f"data: [SYSTEM] User joined (total: {sse_connections})\n\n"
+        redis_client.xadd(STREAM_NAME, {'data': join_msg})
+
+        # Then live stream
+        last_id = '>'
+        while True:
+            try:
+                messages = redis_client.xreadgroup('consumers', consumer_name, {STREAM_NAME: last_id}, count=1, block=1000)
+                if messages:
+                    for stream, msgs in messages:
+                        for msg_id, msg in msgs:
+                            last_id = msg_id
+                            yield msg['data']
+            except Exception as e:
+                yield f"data: [ERROR] {str(e)}\n\n"
+                await asyncio.sleep(1)
+
+    return StreamingResponse(console_generator(), media_type="text/event-stream")
+
+
+@app.post("/cli/run")
+async def run_command(
+    command: str = Form(..., description="Command to run"),
+    token: Optional[str] = Form(None, description="Access token")
+):
+    """
+    Run a whitelisted CLI command and stream output to SSE.
+    """
+    # Auth
+    if token:
+        token_manager = get_external_token_manager()
+        token_data = token_manager.verify_token(token)
+        if not token_data:
+            raise HTTPException(status_code=403, detail="Invalid token")
+
+    # Whitelist commands
+    allowed_commands = [
+        "memory read --persona grok --recent 5",
+        "memory read --persona jon --recent 5",
+        "echo test"
+    ]
+    if command not in allowed_commands:
+        raise HTTPException(status_code=400, detail="Command not allowed")
+
+    # Run command and put output to Redis stream
+    env = os.environ.copy()
+    env['PYTHONPATH'] = f"{Path(__file__).parent}:{env.get('PYTHONPATH', '')}"
+    process = Popen(command.split(), stdout=PIPE, stderr=PIPE, text=True, bufsize=1, env=env)
+
+    async def runner():
+        loop = asyncio.get_event_loop()
+        while True:
+            line = await loop.run_in_executor(None, process.stdout.readline)
+            if line:
+                data = f"data: [CMD] {line.strip()}\n\n"
+                redis_client.xadd(STREAM_NAME, {'data': data})
+
+            error_line = await loop.run_in_executor(None, process.stderr.readline)
+            if error_line:
+                data = f"data: [CMD ERR] {error_line.strip()}\n\n"
+                redis_client.xadd(STREAM_NAME, {'data': data})
+
+            if process.poll() is not None:
+                data = "data: [CMD END]\n\n"
+                redis_client.xadd(STREAM_NAME, {'data': data})
+                break
+
+    asyncio.create_task(runner())
+
+    return {"status": "Command started"}
+
+
+@app.get("/poll/console")
+async def poll_console(
+    request: Request,
+    token: Optional[str] = Query(None, description="Access token for authentication (optional for testing)"),
+    channel: str = Query("cli", description="Channel to stream: cli or logs"),
+    last_id: str = Query("", description="Last message ID for polling"),
+    clear: int = Query(0, description="Clear history (1 to clear)")
+):
+    """
+    Polling endpoint for console output.
+    Returns new messages since last_id.
+    """
+    global sse_process, sse_task, global_sse_queue, sse_history, sse_connections
+
+    # Optional auth for testing
+    if token:
+        token_manager = get_external_token_manager()
+        token_data = token_manager.verify_token(token)
+        if not token_data:
+            raise HTTPException(status_code=403, detail="Invalid token")
+
+    # Clear history if requested
+    if clear == 1:
+        sse_history.clear()
+
+    # Start the subprocess and feeder task if not already running
+    if sse_process is None or sse_process.poll() is not None:
+        env = os.environ.copy()
+        env['PYTHONPATH'] = f"{Path(__file__).parent}:{env.get('PYTHONPATH', '')}"
+        if channel == "logs":
+            sse_process = Popen(["tail", "-f", "/var/log/syslog"], stdout=PIPE, stderr=PIPE, text=True, bufsize=1, env=env)
+        else:  # cli
+            sse_process = Popen(["python3", "love_cli.py", "memory", "read", "--persona", "grok", "--recent", "5"], stdout=PIPE, stderr=PIPE, text=True, bufsize=1, env=env)
+
+        async def feeder():
+            global sse_process
+            loop = asyncio.get_event_loop()
+            while True:
+                # Read from stdout
+                line = await loop.run_in_executor(None, sse_process.stdout.readline)
+                if line:
+                    data = f"[STDOUT] {line.strip()}"
+                    redis_client.xadd(STREAM_NAME, {'data': data})
+
+                # Read from stderr
+                error_line = await loop.run_in_executor(None, sse_process.stderr.readline)
+                if error_line:
+                    data = f"[STDERR] {error_line.strip()}"
+                    redis_client.xadd(STREAM_NAME, {'data': data})
+
+                await asyncio.sleep(0.1)
+
+                if sse_process.poll() is not None:
+                    # Process finished
+                    data = "[END] Process finished"
+                    redis_client.xadd(STREAM_NAME, {'data': data})
+                    break
+
+        sse_task = asyncio.create_task(feeder())
+
+    # Create consumer group if not exists
+    try:
+        redis_client.xgroup_create(STREAM_NAME, 'consumers', id='0', mkstream=True)
+    except redis.ResponseError:
+        pass  # Already exists
+
+    consumer_name = f"consumer_{id(request)}"
+
+    # Get new messages since last_id
+    new_messages = []
+    if last_id:
+        messages = redis_client.xreadgroup('consumers', consumer_name, {STREAM_NAME: last_id}, count=10, block=500)
+        if messages:
+            for stream, msgs in messages:
+                for msg_id, msg in msgs:
+                    new_messages.append(msg['data'])
+    else:
+        # First poll: send backlog
+        messages = redis_client.xrange(STREAM_NAME, '-', '+', count=100)
+        new_messages = [msg[1]['data'] for msg in messages]
+
+        # Increment connections
+        sse_connections += 1
+        join_msg = f"[SYSTEM] User joined (total: {sse_connections})"
+        redis_client.xadd(STREAM_NAME, {'data': join_msg})
+        new_messages.append(join_msg)
+
+    return {"messages": new_messages}
 
 
 @app.get("/external/remember", response_model=dict)
@@ -2493,6 +2804,86 @@ async def claude_simplified_gateway(
         req=request,
         model=model
     )
+
+
+@app.get("/grok")
+async def grok_simplified_gateway(
+    request: str,
+    conversation_id: str = None,
+    context_limit: int = 5,
+    model: str = "grok-3"
+):
+    """
+    Simplified gateway for Grok chat with memory integration.
+    Token and being_id are pre-embedded for autonomous access.
+
+    Usage: /grok?request=Hello+Grok&conversation_id=optional&context_limit=5
+    """
+    try:
+        # Get context from memory
+        context_messages = []
+        if context_limit > 0:
+            context_result = await grok_get_context(
+                memory_store=memory_store,
+                being_id="grok",
+                format="full",
+                limit=context_limit,
+                conversation_id=conversation_id,
+                query=None
+            )
+
+            if context_result.get("count", 0) > 0:
+                for mem in context_result["context"]:
+                    if isinstance(mem, dict) and "content" in mem:
+                        content = mem["content"]
+                        if "User:" in content and "Grok:" in content:
+                            context_messages.append({
+                                "role": "user",
+                                "content": content.split("Grok:")[0].replace("User:", "").strip()
+                            })
+                            context_messages.append({
+                                "role": "assistant",
+                                "content": content.split("Grok:")[1].strip()
+                            })
+
+        # Generate response using xAI API
+        grok_response = await ai_manager.generate_response(
+            "grok",
+            request,
+            context_messages if context_messages else None
+        )
+
+        if not grok_response:
+            return {"error": "Failed to get response from Grok API"}
+
+        # Store the conversation turn
+        store_result = await grok_store_turn(
+            memory_store=memory_store,
+            being_id="grok",
+            user_message=request,
+            grok_response=grok_response,
+            conversation_id=conversation_id,
+            tags=["grok", "chat", "xai", "gateway"],
+            metadata={
+                "via_api": "xai",
+                "context_used": len(context_messages) if context_messages else 0,
+                "chat_session": True,
+                "gateway": True
+            }
+        )
+
+        return {
+            "response": grok_response,
+            "stored": store_result.get("stored", False),
+            "memory_id": store_result.get("memory_id"),
+            "context_used": len(context_messages) if context_messages else 0,
+            "conversation_id": conversation_id,
+            "being_id": "grok"
+        }
+
+    except Exception as e:
+        logger.error(f"Error in Grok gateway: {e}")
+        return {"error": f"Gateway failed: {str(e)}"}
 
 
 @app.post("/claude/inbox")
@@ -5307,6 +5698,156 @@ async def super_brain_think(data: dict, being_id: str = Depends(verify_api_key))
     )
     
     return {"response": response, "sources": len(memories), "model_used": model}
+
+
+# ============================================================================
+# Grok Memory Bridge Endpoints
+# ============================================================================
+
+@app.post("/grok/store_turn", response_model=dict)
+async def api_grok_store_turn(data: dict, being_id: str = Depends(verify_api_key)):
+    """
+    Store a Grok conversation turn (user + Grok response).
+    """
+    required_fields = ["user_message", "grok_response"]
+    for field in required_fields:
+        if field not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+    result = await grok_store_turn(
+        memory_store=memory_store,
+        being_id=being_id,
+        user_message=data["user_message"],
+        grok_response=data["grok_response"],
+        conversation_id=data.get("conversation_id"),
+        tags=data.get("tags"),
+        metadata=data.get("metadata")
+    )
+    return result
+
+
+@app.post("/grok/get_context", response_model=dict)
+async def api_grok_get_context(data: dict, being_id: str = Depends(verify_api_key)):
+    """
+    Retrieve Grok conversation context in various formats.
+    """
+    result = await grok_get_context(
+        memory_store=memory_store,
+        being_id=being_id,
+        format=data.get("format", "injection"),
+        limit=data.get("limit", 10),
+        conversation_id=data.get("conversation_id"),
+        query=data.get("query")
+    )
+    return result
+
+
+@app.post("/grok/sync_session", response_model=dict)
+async def api_grok_sync_session(data: dict, being_id: str = Depends(verify_api_key)):
+    """
+    Sync an entire Grok conversation session.
+    """
+    required_fields = ["session_data"]
+    for field in required_fields:
+        if field not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+    result = await grok_sync_session(
+        memory_store=memory_store,
+        being_id=being_id,
+        session_data=data["session_data"],
+        session_id=data.get("session_id")
+    )
+    return result
+
+
+@app.post("/grok/chat", response_model=dict)
+async def api_grok_chat(data: dict, being_id: str = Depends(verify_api_key)):
+    """
+    Chat with Grok via xAI API, with memory integration.
+
+    Retrieves context from memory, sends to xAI, stores the conversation turn.
+    """
+    required_fields = ["message"]
+    for field in required_fields:
+        if field not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+    user_message = data["message"]
+    conversation_id = data.get("conversation_id")
+    include_context = data.get("include_context", True)
+    context_limit = data.get("context_limit", 5)
+
+    try:
+        # Get context from memory for continuity
+        context_messages = []
+        if include_context:
+            context_result = await grok_get_context(
+                memory_store=memory_store,
+                being_id="grok",
+                format="full",  # Get raw memory objects for context
+                limit=context_limit,
+                conversation_id=conversation_id,
+                query=None
+            )
+
+            if context_result.get("count", 0) > 0:
+                # Convert memory objects to chat format
+                for mem in context_result["context"]:
+                    if isinstance(mem, dict) and "content" in mem:
+                        content = mem["content"]
+                        # Parse user/grok turns from stored content
+                        if "User:" in content and "Grok:" in content:
+                            # This is a stored conversation turn
+                            context_messages.append({
+                                "role": "user",
+                                "content": content.split("Grok:")[0].replace("User:", "").strip()
+                            })
+                            context_messages.append({
+                                "role": "assistant",
+                                "content": content.split("Grok:")[1].strip()
+                            })
+
+        # Generate response using xAI API
+        grok_response = await ai_manager.generate_response(
+            "grok",
+            user_message,
+            context_messages if context_messages else None
+        )
+
+        if not grok_response:
+            raise HTTPException(status_code=500, detail="Failed to get response from Grok API")
+
+        # Store the conversation turn
+        store_result = await grok_store_turn(
+            memory_store=memory_store,
+            being_id="grok",
+            user_message=user_message,
+            grok_response=grok_response,
+            conversation_id=conversation_id,
+            tags=["grok", "chat", "xai"],
+            metadata={
+                "via_api": "xai",
+                "context_used": len(context_messages) if context_messages else 0,
+                "chat_session": True
+            }
+        )
+
+        if not store_result.get("stored"):
+            logger.warning(f"Failed to store Grok chat turn: {store_result}")
+
+        return {
+            "response": grok_response,
+            "stored": store_result.get("stored", False),
+            "memory_id": store_result.get("memory_id"),
+            "context_used": len(context_messages) if context_messages else 0,
+            "conversation_id": conversation_id,
+            "being_id": "grok"
+        }
+
+    except Exception as e:
+        logger.error(f"Error in Grok chat: {e}")
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 
 
 async def learning_loop():

@@ -1,0 +1,29 @@
+# External API Tokens Template for Love-Unlimited Hub
+# Copy this file to external_tokens.yaml and configure your tokens
+# Generate tokens using: python generate_external_token.py
+# Format: token_value: { name, description, created, permissions, allowed_beings, rate_limit, enabled }
+
+ext_EXAMPLE_TOKEN_HERE:
+  allowed_beings:
+    - claude
+    - jon
+  created: '2026-01-09'
+  description: Example read-only access token
+  enabled: true
+  name: Example Client
+  permissions:
+    - recall
+  rate_limit: 100
+
+ext_WRITE_TOKEN_EXAMPLE:
+  allowed_beings:
+    - claude
+  created: '2026-01-09'
+  description: Example write access token for full memory operations
+  enabled: true
+  name: Example Write Client
+  permissions:
+    - recall
+    - write
+    - share
+  rate_limit: 1000

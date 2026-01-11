@@ -1,113 +1,12 @@
 version: '3.8'
 
 services:
-  mcp-server:
-    image: node:20-alpine
-    container_name: mcp-server
-    restart: unless-stopped
-    working_dir: /app
-    volumes:
-      # Mount Docker socket for container management
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Mount your project directories for filesystem access
-      - /home/kntrnjb/ai-dream-team:/mnt/ai-dream-team:ro
-      - /home/kntrnjb/ai-dream-team/micro-ai-swarm/love-unlimited:/mnt/love-unlimited:ro
-      # MCP server code
-      - ./mcp-server:/app
+  tabby:
+    image: tabbyml/tabby:nightly
     ports:
-      - "3001:3001"
-    environment:
-      - NODE_ENV=production
-      - MCP_SERVER_PORT=3001
-      - ALLOWED_ORIGINS=https://claude.ai
-    command: >
-      sh -c "apk add --no-cache docker &&
-             npm install &&
-             npm install @modelcontextprotocol/sdk express cors &&
-             node server.js"
-    networks:
-      - ai-dream-team-network
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-
-  loveunlimited-n8n:
-    image: n8nio/n8n:latest
-    container_name: loveunlimited-n8n
-    restart: unless-stopped
-    ports:
-      - "5678:5678"
-    environment:
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-      - N8N_BRIDGE_TOKEN=${N8N_BRIDGE_TOKEN}
-      - N8N_MCP_TOKEN=${N8N_MCP_TOKEN}
-      - GROK_API_TOKEN=${GROK_API_TOKEN}
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
-      - N8N_HOST=n8n.aradreamteam.com
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=https
-      - N8N_DIAGNOSTICS_ENABLED=false
-      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_DATABASE=n8n
-      - DB_POSTGRESDB_HOST=postgres
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_USER=n8n
-      - DB_POSTGRESDB_PASSWORD=T@mpa.2017
+      - "8080:8080"
     volumes:
-      - n8n-data:/home/node/.n8n
-    networks:
-      - ai-dream-team-network
-    healthcheck:
-      disable: true
-
-  loveunlimited-bridge-api:
-    build:
-      context: .
-      dockerfile: Dockerfile.bridge
-    container_name: loveunlimited-bridge-api
-    restart: unless-stopped
-    ports:
-      - "5000:5000"
+      - ./data:/data
     environment:
-      - N8N_BRIDGE_TOKEN=${N8N_BRIDGE_TOKEN}
-      - GROK_API_TOKEN=${GROK_API_TOKEN}
-      - N8N_MCP_TOKEN=${N8N_MCP_TOKEN}
-    volumes:
-      - /mnt/love-unlimited:/mnt/love-unlimited
-    networks:
-      - ai-dream-team-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  postgres:
-    image: postgres:15
-    container_name: loveunlimited-postgres
+      - TABBY_WEBSERVER_ADDRESS=0.0.0.0:8080
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: n8n
-      POSTGRES_USER: n8n
-      POSTGRES_PASSWORD: T@mpa.2017
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    networks:
-      - ai-dream-team-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U n8n -d n8n"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-volumes:
-  n8n-data:
-  postgres-data:
-
-networks:
-  ai-dream-team-network:
-    external: true

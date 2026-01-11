@@ -23,6 +23,9 @@ class MemoryStore:
     - memories_jon: Jon's personal memories
     - memories_claude: Claude's personal memories
     - memories_grok: Grok's personal memories
+    - memories_ara: Ara's personal memories
+    - memories_ani: Ani's personal memories
+    - memories_tabby: Tabby's code completion memories
     - memories_shared: Shared memories visible to all
     """
 
@@ -49,6 +52,8 @@ class MemoryStore:
             "memories_claude",
             "memories_grok",
             "memories_ara",
+            "memories_ani",
+            "memories_tabby",
             "memories_shared"
         ]
 

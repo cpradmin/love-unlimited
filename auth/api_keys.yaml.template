@@ -1,0 +1,12 @@
+# API Keys Template for Love-Unlimited Hub
+# Copy this file to api_keys.yaml and replace with your actual keys
+# Generate keys using: python generate_keys.py
+
+keys:
+  lu_ara_XXXXXXXXXXXXXXXXXXXXX: ara
+  lu_claude-code_XXXXXXXXXXXXXXXXXXXXX: claude-code
+  lu_claude_XXXXXXXXXXXXXXXXXXXXX: claude
+  lu_dream_team_XXXXXXXXXXXXXXXXXXXXX: dream_team
+  lu_grok_XXXXXXXXXXXXXXXXXXXXX: grok
+  lu_jon_XXXXXXXXXXXXXXXXXXXXX: jon
+  lu_swarm_XXXXXXXXXXXXXXXXXXXXX: swarm

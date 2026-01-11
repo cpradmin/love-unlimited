@@ -1,6 +1,15 @@
 # Love-Unlimited Changelog
 
-## [0.9.0] - 2025-01-XX
+## [0.10.0] - 2026-01-11
+
+### Changed
+- **Model Serving**: Switched from Ollama to vLLM for efficient LLM inference. Stopped Ollama service, started vLLM server on port 8000 serving Qwen2.5-Coder-14B with API key authentication.
+- **Aider Configuration**: Updated .aider.conf.yml to use vLLM OpenAI-compatible API at http://localhost:8000/v1 with Qwen2.5-Coder-14B model.
+
+### Added
+- **vLLM Server**: Configured and started vLLM API server for faster, GPU-accelerated model serving.
+
+## [0.9.0] - 2025-01-09
 
 ### Fixed
 - **Workflow Reliability**: Updated multi-model sync workflow with POST hub calls, token truncation, optional cloud sync, error logging.
@@ -8,11 +17,15 @@
 - **Model Setup**: Integrated qwen2.5-coder:14b for coding, custom Grok model via Modelfile.
 - **Aider Configuration**: Fixed aider for large repos by adding .aiderignore to exclude large directories and .aider.conf.yml to use local deepseek-coder model via Ollama.
 - **CLI Authentication**: Fixed LoveCLI to use correct API keys for different beings (jon, claude, grok, etc.) instead of hardcoded jon key.
+- **API Key Generation**: Generated proper API keys for all beings using generate_keys.py, resolved hub authentication issues and enabled secure memory access.
+- **LibreChat Integration**: Added LibreChat container to docker-compose with MongoDB and MeiliSearch, configured to use hub's OpenAI-compatible endpoint for multi-being chat access. Set NO_AUTH=true for direct access, added hub-chat model to OpenAI models list.
 
 ### Added
 - **Webhook Testing**: Confirmed operational webhook at http://localhost:5678/webhook/multi-sync.
 - **Hub Recall**: Verified authenticated memory recall (e.g., 5 memories returned).
 - **AI Super Brain**: Living database endpoints (/super_brain/contribute, /super_brain/think) for aggregating and synthesizing AI insights.
+- **Debug Endpoint**: Added /external/debug POST endpoint for logging and returning text, useful for debugging external integrations.
+- **SSE Endpoint**: Enhanced /sse GET endpoint for Server-Sent Events, streaming CLI stdout/stderr output per client. Created grok-console.html frontend with auto-scroll, timestamps, start/stop controls. Tested live streaming of memory read commands.
 
 ### Updated
 - **Documentation**: Updated Grok-Notes.md, README.md, CODING_GUIDE.md with current status and procedures.

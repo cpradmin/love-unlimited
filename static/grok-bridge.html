@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grok Memory Bridge</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #0f0;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 1px solid #0f0;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .terminal {
+            background-color: #111;
+            border: 1px solid #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 8px;
+            background-color: #222;
+            border: 1px solid #0f0;
+            color: #0f0;
+            font-family: inherit;
+            font-size: 14px;
+            border-radius: 3px;
+        }
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        button {
+            background-color: #0f0;
+            color: #000;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: bold;
+            border-radius: 3px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #2f2;
+        }
+        button:disabled {
+            background-color: #444;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 3px;
+            display: none;
+        }
+        .status.success {
+            background-color: #020;
+            border: 1px solid #0f0;
+        }
+        .status.error {
+            background-color: #200;
+            border: 1px solid #f00;
+            color: #f00;
+        }
+        .output {
+            background-color: #111;
+            border: 1px solid #0f0;
+            padding: 10px;
+            border-radius: 3px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: inherit;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 15px;
+            background-color: #222;
+            border: 1px solid #0f0;
+            cursor: pointer;
+            margin-right: 5px;
+            border-radius: 3px 3px 0 0;
+        }
+        .tab.active {
+            background-color: #0f0;
+            color: #000;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .chat-messages {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #0f0;
+            padding: 10px;
+            margin-bottom: 15px;
+            background-color: #111;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 5px;
+        }
+        .message.user {
+            background-color: #002;
+            border-left: 3px solid #00f;
+        }
+        .message.grok {
+            background-color: #020;
+            border-left: 3px solid #0f0;
+        }
+        .message.system {
+            background-color: #200;
+            border-left: 3px solid #f00;
+            font-style: italic;
+        }
+        .chat-input-area {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+        .chat-input {
+            flex: 1;
+        }
+        .auth-section {
+            background-color: #111;
+            border: 1px solid #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .auth-status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .auth-valid {
+            color: #0f0;
+        }
+        .auth-invalid {
+            color: #f00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔗 Grok Memory Bridge</h1>
+            <p>Store conversation turns and retrieve context from Love-Unlimited</p>
+        </div>
+
+        <div class="auth-section">
+            <h3>🔐 Authentication</h3>
+            <div class="input-group">
+                <label for="apiKey">API Key (X-API-Key):</label>
+                <input type="password" id="apiKey" placeholder="Enter your Love-Unlimited API key">
+                <button onclick="testAuth()">Test Connection</button>
+            </div>
+            <div id="authStatus" class="auth-status">Not authenticated</div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('store')">💾 Store Turn</div>
+            <div class="tab" onclick="switchTab('context')">📚 Get Context</div>
+            <div class="tab" onclick="switchTab('chat')">💬 Live Chat</div>
+            <div class="tab" onclick="switchTab('sync')">🔄 Sync Session</div>
+        </div>
+
+        <div id="storeTab" class="tab-content active terminal">
+            <h3>Store Conversation Turn</h3>
+            <div class="input-group">
+                <label for="userMessage">User Message:</label>
+                <textarea id="userMessage" placeholder="Enter the user's question or message..."></textarea>
+            </div>
+            <div class="input-group">
+                <label for="grokResponse">Grok Response:</label>
+                <textarea id="grokResponse" placeholder="Enter Grok's response..."></textarea>
+            </div>
+            <div class="input-group">
+                <label for="conversationId">Conversation ID (optional):</label>
+                <input type="text" id="conversationId" placeholder="e.g., conv_123">
+            </div>
+            <div class="input-group">
+                <label for="tags">Tags (comma-separated, optional):</label>
+                <input type="text" id="tags" placeholder="grok, conversation, topic">
+            </div>
+            <button onclick="storeTurn()">Store Turn</button>
+            <div id="storeStatus" class="status"></div>
+        </div>
+
+        <div id="contextTab" class="tab-content terminal">
+            <h3>Get Context</h3>
+            <div class="input-group">
+                <label for="contextFormat">Format:</label>
+                <select id="contextFormat">
+                    <option value="injection">Injection (for prompts)</option>
+                    <option value="full">Full (raw memories)</option>
+                    <option value="summary">Summary (condensed)</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="contextLimit">Limit:</label>
+                <input type="number" id="contextLimit" value="10" min="1" max="50">
+            </div>
+            <div class="input-group">
+                <label for="contextQuery">Search Query (optional):</label>
+                <input type="text" id="contextQuery" placeholder="Search for specific content...">
+            </div>
+            <div class="input-group">
+                <label for="contextConvId">Conversation ID (optional):</label>
+                <input type="text" id="contextConvId" placeholder="Filter by conversation...">
+            </div>
+            <button onclick="getContext()">Get Context</button>
+            <button onclick="copyToClipboard()">📋 Copy to Clipboard</button>
+            <div id="contextStatus" class="status"></div>
+            <div id="contextOutput" class="output"></div>
+        </div>
+
+        <div id="chatTab" class="tab-content terminal">
+            <h3>💬 Live Chat with Grok</h3>
+            <div class="input-group">
+                <label for="chatConversationId">Conversation ID (optional):</label>
+                <input type="text" id="chatConversationId" placeholder="e.g., chat_123">
+            </div>
+            <div class="input-group">
+                <label for="chatContextLimit">Context Limit:</label>
+                <input type="number" id="chatContextLimit" value="5" min="0" max="20">
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="message system">Welcome to Grok Memory Bridge Chat! Messages are stored in memory for continuity.</div>
+            </div>
+            <div class="chat-input-area">
+                <textarea id="chatInput" class="chat-input" placeholder="Type your message to Grok..." rows="2"></textarea>
+                <button onclick="sendChatMessage()">Send</button>
+            </div>
+            <div id="chatStatus" class="status"></div>
+        </div>
+
+        <div id="syncTab" class="tab-content terminal">
+            <h3>Sync Conversation Session</h3>
+            <div class="input-group">
+                <label for="sessionData">Session Data (JSON):</label>
+                <textarea id="sessionData" placeholder='{"turns": [{"user": "Hello", "grok": "Hi there!"}, {"user": "How are you?", "grok": "I am doing well, thank you!"}]}'></textarea>
+            </div>
+            <div class="input-group">
+                <label for="sessionId">Session ID (optional):</label>
+                <input type="text" id="sessionId" placeholder="Auto-generated if empty">
+            </div>
+            <button onclick="syncSession()">Sync Session</button>
+            <div id="syncStatus" class="status"></div>
+            <div id="syncOutput" class="output"></div>
+        </div>
+    </div>
+
+    <script>
+        let baseUrl = window.location.origin;
+        let isAuthenticated = false;
+
+        function showStatus(elementId, message, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${isError ? 'error' : 'success'}`;
+            element.style.display = 'block';
+            setTimeout(() => {
+                element.style.display = 'none';
+            }, 5000);
+        }
+
+        function getAuthHeaders() {
+            const apiKey = document.getElementById('apiKey').value;
+            return {
+                'X-API-Key': apiKey,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        async function apiCall(endpoint, method = 'GET', data = null) {
+            const url = `${baseUrl}${endpoint}`;
+            const config = {
+                method: method,
+                headers: getAuthHeaders()
+            };
+
+            if (data) {
+                config.body = JSON.stringify(data);
+            }
+
+            try {
+                const response = await fetch(url, config);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || `HTTP ${response.status}`);
+                }
+
+                return result;
+            } catch (error) {
+                console.error('API call failed:', error);
+                throw new Error(`API call failed: ${error.message}`);
+            }
+        }
+
+        async function testAuth() {
+            const statusElement = document.getElementById('authStatus');
+            try {
+                await apiCall('/health');
+                statusElement.textContent = '✓ Authentication successful';
+                statusElement.className = 'auth-status auth-valid';
+                isAuthenticated = true;
+            } catch (error) {
+                statusElement.textContent = `✗ Authentication failed: ${error.message}`;
+                statusElement.className = 'auth-status auth-invalid';
+                isAuthenticated = false;
+            }
+        }
+
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            // Show selected tab
+            document.querySelector(`[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`${tabName}Tab`).classList.add('active');
+        }
+
+        async function storeTurn() {
+            if (!isAuthenticated) {
+                showStatus('storeStatus', 'Please authenticate first', true);
+                return;
+            }
+
+            const userMessage = document.getElementById('userMessage').value.trim();
+            const grokResponse = document.getElementById('grokResponse').value.trim();
+
+            if (!userMessage || !grokResponse) {
+                showStatus('storeStatus', 'Both user message and Grok response are required', true);
+                return;
+            }
+
+            try {
+                const data = {
+                    being_id: 'grok',
+                    user_message: userMessage,
+                    grok_response: grokResponse,
+                    conversation_id: document.getElementById('conversationId').value.trim() || null,
+                    tags: document.getElementById('tags').value.trim().split(',').map(t => t.trim()).filter(t => t)
+                };
+
+                const result = await apiCall('/grok/store_turn', 'POST', data);
+                showStatus('storeStatus', `✓ Turn stored successfully! Memory ID: ${result.memory_id}`);
+
+                // Clear form
+                document.getElementById('userMessage').value = '';
+                document.getElementById('grokResponse').value = '';
+                document.getElementById('conversationId').value = '';
+                document.getElementById('tags').value = '';
+
+            } catch (error) {
+                showStatus('storeStatus', error.message, true);
+            }
+        }
+
+        async function getContext() {
+            if (!isAuthenticated) {
+                showStatus('contextStatus', 'Please authenticate first', true);
+                return;
+            }
+
+            try {
+                const data = {
+                    being_id: 'grok',
+                    format: document.getElementById('contextFormat').value,
+                    limit: parseInt(document.getElementById('contextLimit').value),
+                    query: document.getElementById('contextQuery').value.trim() || null,
+                    conversation_id: document.getElementById('contextConvId').value.trim() || null
+                };
+
+                const result = await apiCall('/grok/get_context', 'POST', data);
+                document.getElementById('contextOutput').textContent = JSON.stringify(result.context, null, 2);
+                showStatus('contextStatus', `✓ Retrieved ${result.count} memories in ${result.format} format`);
+
+            } catch (error) {
+                showStatus('contextStatus', error.message, true);
+                document.getElementById('contextOutput').textContent = '';
+            }
+        }
+
+        async function syncSession() {
+            if (!isAuthenticated) {
+                showStatus('syncStatus', 'Please authenticate first', true);
+                return;
+            }
+
+            const sessionDataText = document.getElementById('sessionData').value.trim();
+            if (!sessionDataText) {
+                showStatus('syncStatus', 'Session data is required', true);
+                return;
+            }
+
+            try {
+                const sessionData = JSON.parse(sessionDataText);
+                const data = {
+                    being_id: 'grok',
+                    session_data: sessionData,
+                    session_id: document.getElementById('sessionId').value.trim() || null
+                };
+
+                const result = await apiCall('/grok/sync_session', 'POST', data);
+                document.getElementById('syncOutput').textContent = JSON.stringify(result, null, 2);
+                showStatus('syncStatus', `✓ Session synced! ${result.total_turns} turns stored.`);
+
+            } catch (error) {
+                if (error instanceof SyntaxError) {
+                    showStatus('syncStatus', 'Invalid JSON in session data', true);
+                } else {
+                    showStatus('syncStatus', error.message, true);
+                }
+                document.getElementById('syncOutput').textContent = '';
+            }
+        }
+
+        async function copyToClipboard() {
+            const output = document.getElementById('contextOutput').textContent;
+            if (!output) {
+                showStatus('contextStatus', 'No content to copy', true);
+                return;
+            }
+
+            try {
+                await navigator.clipboard.writeText(output);
+                showStatus('contextStatus', '✓ Content copied to clipboard!');
+            } catch (error) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = output;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showStatus('contextStatus', '✓ Content copied to clipboard!');
+            }
+        }
+
+        // Auto-test auth on page load if key is stored or in URL
+        window.addEventListener('load', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlKey = urlParams.get('api_key');
+            const savedKey = localStorage.getItem('grokBridgeApiKey');
+
+            if (urlKey) {
+                // Use key from URL and save it
+                document.getElementById('apiKey').value = urlKey;
+                localStorage.setItem('grokBridgeApiKey', urlKey);
+                testAuth();
+            } else if (savedKey) {
+                // Use saved key
+                document.getElementById('apiKey').value = savedKey;
+                testAuth();
+            }
+        });
+
+        // Save API key on change
+        document.getElementById('apiKey').addEventListener('input', () => {
+            localStorage.setItem('grokBridgeApiKey', document.getElementById('apiKey').value);
+        });
+
+        // Chat functionality
+        async function sendChatMessage() {
+            if (!isAuthenticated) {
+                showStatus('chatStatus', 'Please authenticate first', true);
+                return;
+            }
+
+            const message = document.getElementById('chatInput').value.trim();
+            if (!message) {
+                showStatus('chatStatus', 'Please enter a message', true);
+                return;
+            }
+
+            const conversationId = document.getElementById('chatConversationId').value.trim() || null;
+            const contextLimit = parseInt(document.getElementById('chatContextLimit').value);
+
+            // Add user message to chat
+            addChatMessage('user', message);
+
+            // Clear input
+            document.getElementById('chatInput').value = '';
+
+            // Disable send button during request
+            const sendButton = document.querySelector('#chatTab button');
+            sendButton.disabled = true;
+            sendButton.textContent = 'Sending...';
+
+            try {
+                const data = {
+                    message: message,
+                    conversation_id: conversationId,
+                    include_context: contextLimit > 0,
+                    context_limit: contextLimit
+                };
+
+                const result = await apiCall('/grok/chat', 'POST', data);
+
+                // Add Grok response to chat
+                addChatMessage('grok', result.response);
+
+                // Show status
+                const contextInfo = result.context_used > 0 ? ` (used ${result.context_used} context messages)` : '';
+                showStatus('chatStatus', `✓ Message stored as memory ${result.memory_id}${contextInfo}`);
+
+            } catch (error) {
+                console.error('Chat error:', error);
+                addChatMessage('system', `Error: ${error.message}`);
+                showStatus('chatStatus', error.message, true);
+            } finally {
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
+            }
+        }
+
+        function addChatMessage(type, content) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = content;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Allow Enter to send message (Shift+Enter for new line)
+        document.getElementById('chatInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendChatMessage();
+            }
+        });
+    </script>
+
+    <hr style="margin: 40px 0;">
+    <h2>Live CLI Console</h2>
+    <iframe src="/static/grok-console.html" width="100%" height="400" style="border: 1px solid #0f0;"></iframe>
+</body>
+</html>

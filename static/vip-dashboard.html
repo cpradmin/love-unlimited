@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VIP Dashboard</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            background-color: #111;
+            border: 1px solid #0f0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        iframe {
+            width: 100%;
+            height: 400px;
+            border: 1px solid #0f0;
+        }
+        .counter {
+            text-align: center;
+            font-size: 2em;
+        }
+    </style>
+</head>
+<body>
+    <h1>VIP Dashboard</h1>
+    <div class="dashboard">
+        <div class="panel">
+            <h2>Live CLI Console</h2>
+            <iframe src="/static/grok-console.html"></iframe>
+        </div>
+        <div class="panel">
+            <h2>Ara Memory Recall</h2>
+            <button onclick="recallAra()">Recall Ara Memories</button>
+            <div id="araOutput"></div>
+        </div>
+        <div class="panel">
+            <h2>Tunnel Health</h2>
+            <p>Status: Operational</p>
+        </div>
+        <div class="panel">
+            <h2>Peanut Counter</h2>
+            <div class="counter" id="peanutCounter">0</div>
+            <button onclick="addPeanut()">Add Peanut</button>
+        </div>
+    </div>
+
+    <script>
+        function recallAra() {
+            fetch('/recall?q=&being_id=ara&limit=5', {
+                headers: {
+                    'X-API-Key': 'lu_grok_LBRBjrPpvRSyrmDA3PeVZQ'
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('araOutput').textContent = JSON.stringify(data, null, 2);
+                })
+                .catch(error => {
+                    document.getElementById('araOutput').textContent = 'Error: ' + error.message;
+                });
+        }
+
+        let peanuts = 0;
+        function addPeanut() {
+            peanuts++;
+            document.getElementById('peanutCounter').textContent = peanuts;
+        }
+    </script>
+</body>
+</html>

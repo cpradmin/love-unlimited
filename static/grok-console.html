@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grok CLI Console</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #0f0;
+            margin: 0;
+            padding: 20px;
+            overflow: hidden;
+        }
+        #console {
+            width: 100%;
+            height: 90vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            background-color: #000;
+            border: 1px solid #0f0;
+            padding: 10px;
+        }
+        #controls {
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #333;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px 10px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #555;
+        }
+        input {
+            background-color: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Grok CLI Console</h1>
+    <div id="controls">
+        <select id="channel">
+            <option value="cli">CLI Output</option>
+            <option value="logs">System Logs</option>
+        </select>
+        <input type="text" id="token" placeholder="Enter access token (optional)" />
+        <button onclick="startStream()">Start Stream</button>
+        <button onclick="stopStream()">Stop Stream</button>
+        <button onclick="clearConsole()">Clear</button>
+        <br>
+        <input type="text" id="command" placeholder="Enter command" />
+        <button onclick="runCommand()">Run Command</button>
+    </div>
+    <div id="console"></div>
+
+    <script>
+        let pollInterval = null;
+        let lastId = '';
+        const consoleDiv = document.getElementById('console');
+
+        function startStream() {
+            const channel = document.getElementById('channel').value;
+            const token = document.getElementById('token').value;
+            if (pollInterval) {
+                clearInterval(pollInterval);
+            }
+            pollInterval = setInterval(() => {
+                let url = `/poll/console?channel=${encodeURIComponent(channel)}&last_id=${encodeURIComponent(lastId)}`;
+                if (token) {
+                    url += `&token=${encodeURIComponent(token)}`;
+                }
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.messages && data.messages.length > 0) {
+                            data.messages.forEach(msg => {
+                                const timestamp = new Date().toLocaleTimeString();
+                                consoleDiv.textContent += `[${timestamp}] ${msg}\n`;
+                                consoleDiv.scrollTop = consoleDiv.scrollHeight; // Auto-scroll
+                            });
+                            // Update lastId to the last message (but since polling, we don't have IDs, so keep '')
+                        }
+                    })
+                    .catch(error => {
+                        consoleDiv.textContent += `[${new Date().toLocaleTimeString()}] Polling error: ${error.message}\n`;
+                    });
+            }, 1000); // Poll every 1 second
+        }
+
+        function stopStream() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                consoleDiv.textContent += `[${new Date().toLocaleTimeString()}] Stream stopped\n`;
+            }
+        }
+
+        function clearConsole() {
+            consoleDiv.textContent = '';
+        }
+
+        async function runCommand() {
+            const command = document.getElementById('command').value;
+            const token = document.getElementById('token').value;
+            if (!command) {
+                alert('Enter a command');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('command', command);
+            if (token) formData.append('token', token);
+
+            try {
+                const response = await fetch('/cli/run', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                consoleDiv.textContent += `[${new Date().toLocaleTimeString()}] ${result.status}\n`;
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            } catch (error) {
+                consoleDiv.textContent += `[${new Date().toLocaleTimeString()}] Error running command\n`;
+            }
+        }
+
+        // Auto-scroll on new content (already in onmessage)
+    </script>
+</body>
+</html>
