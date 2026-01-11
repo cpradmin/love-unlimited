@@ -11,6 +11,7 @@ import time
 from typing import Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 import logging
+import subprocess
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +30,7 @@ class WebBrowsingAgent:
         self.visited_urls = set()
         self.knowledge_base = []
 
-    def browse_url(self, url: str, depth: int = 1, max_pages: int = 5) -> Dict:
+    def browse_url(self, url: str, depth: int = 1, max_pages: int = 5, use_katana: bool = False) -> Dict:
         """
         Browse a URL and extract meaningful information.
 
@@ -37,6 +38,7 @@ class WebBrowsingAgent:
             url: Starting URL to browse
             depth: How deep to follow links (1 = just this page)
             max_pages: Maximum pages to visit
+            use_katana: Use Katana for advanced crawling (discovers more links)
 
         Returns:
             Dict with findings, summary, and insights
@@ -60,7 +62,10 @@ class WebBrowsingAgent:
 
                 # Follow links if depth > 1
                 if depth > 1:
-                    links = self._extract_links(page_data["url"], page_data["content"])
+                    if use_katana:
+                        links = self._crawl_with_katana(page_data["url"])
+                    else:
+                        links = self._extract_links(page_data["url"], page_data["content"])
                     for link in links[:max_pages-1]:  # -1 for the initial page
                         if len(findings["pages_visited"]) >= max_pages:
                             break
@@ -143,6 +148,48 @@ class WebBrowsingAgent:
             logger.error(f"Error extracting links: {e}")
 
         return list(set(links))[:10]  # Limit and deduplicate
+
+    def _crawl_with_katana(self, url: str) -> List[str]:
+        """Use Katana for advanced link crawling."""
+        links = []
+        try:
+            # Run katana with JSON output
+            result = subprocess.run(
+                ['katana', '-u', url, '-json', '-silent', '-timeout', '10'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.returncode == 0:
+                # Parse JSON lines
+                for line in result.stdout.strip().split('\n'):
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            crawled_url = data.get('url')
+                            if crawled_url:
+                                parsed = urlparse(crawled_url)
+                                # Filter similar to _extract_links
+                                if parsed.scheme in ['http', 'https'] and not parsed.fragment:
+                                    base_parsed = urlparse(url)
+                                    if parsed.netloc == base_parsed.netloc or parsed.netloc in [
+                                        'wikipedia.org', 'github.com', 'stackoverflow.com',
+                                        'arxiv.org', 'news.ycombinator.com'
+                                    ]:
+                                        links.append(crawled_url)
+                        except json.JSONDecodeError:
+                            continue
+
+            else:
+                logger.error(f"Katana failed: {result.stderr}")
+
+        except subprocess.TimeoutExpired:
+            logger.error("Katana timed out")
+        except Exception as e:
+            logger.error(f"Error running Katana: {e}")
+
+        return list(set(links))[:20]  # Katana finds more, allow up to 20
 
     def _extract_insights(self, page_data: Dict) -> List[str]:
         """Extract key insights from page content."""
