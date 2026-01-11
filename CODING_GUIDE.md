@@ -18,6 +18,34 @@ All four AIs (Claude, Grok, Swarm, and Dream Team) are capable of writing code. 
 - **Style**: Detailed, helpful, conversational
 - **Use when**: You want alternatives or need explanations
 
+### 🛠️ Coding Tools & Resources
+
+#### Aider (Primary Coding Assistant)
+- **What it is**: AI-powered code editor for collaborative coding
+- **Backend**: Currently Tabby (Qwen2-1.5B-Instruct for code-focused tasks)
+- **Usage**: `aider --model Qwen2-1.5B-Instruct --openai-api-base http://localhost:30891/v1`
+- **Features**: File editing, refactoring, explanations
+- **Best for**: Direct code changes and AI-assisted development
+
+#### Tabby API (Code Completion Server)
+- **What it is**: Local Rust-based server for AI code completion
+- **Models**: Qwen2-1.5B-Instruct (chat), Nomic-Embed-Text (embeddings)
+- **API**: OpenAI-compatible at `http://localhost:30891/v1/chat/completions`
+- **Ports**: 30891 (chat), 30888-30890 (embeddings)
+- **Best for**: Code suggestions, completions, and chat-based coding
+
+#### vLLM (General AI Server)
+- **What it is**: GPU-accelerated LLM server for broader tasks
+- **Model**: Qwen2.5-Coder-7B
+- **API**: `http://localhost:8000/v1/chat/completions`
+- **Best for**: General AI queries, when Tabby is code-specific
+
+#### WebBrowsingAgent (Research Tool)
+- **What it is**: Autonomous web crawler for gathering information
+- **Features**: Link extraction with Katana for advanced crawling
+- **Usage**: `python web_browsing_agent.py --url <url> --use-katana`
+- **Best for**: Research and data collection
+
 #### Swarm (Local Ollama/phi3:mini)
 - **Best for**: Distributed algorithms, parallel processing concepts
 - **Speed**: Slower (local LLM)

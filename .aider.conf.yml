@@ -1,0 +1,4 @@
+model: Qwen2-1.5B-Instruct
+openai-api-base: http://localhost:30891/v1
+openai-api-key: 
+edit-format: whole
