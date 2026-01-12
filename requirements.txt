@@ -89,6 +89,12 @@ tornado>=6.5.4                # Async web framework for WebSSH
 paramiko>=4.0.0               # SSH client library (included with webssh)
 
 # ============================================
+# WEBSSH PROXY INTEGRATION
+# ============================================
+fastapi-proxy-lib>=0.4.0      # Reverse proxy for WebSSH terminal integration
+httpx-ws>=0.8.1               # WebSocket support for httpx
+
+# ============================================
 # REMOVED: Unused dependencies
 # ============================================
 # python-jose - REMOVED (unmaintained since 2021, not used in codebase)

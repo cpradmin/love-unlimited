@@ -36,7 +36,7 @@ from beings import BeingManager
 from hub.ai_clients import ai_manager
 from web_browsing_agent import WebBrowsingAgent
 from hub.proxmox_client import get_proxmox_client
-# Terminal manager will be initialized later
+from hub.webssh_proxy import WebSSHProxy
 from hub.proxmox_models import (
     NodesListResponse,
     VMsListResponse,
@@ -128,6 +128,7 @@ being_manager: Optional[BeingManager] = None
 memory_store: Optional[MemoryStore] = None
 sharing_manager: Optional[SharingManager] = None
 media_store: Optional[MediaStore] = None
+webssh_proxy: Optional[WebSSHProxy] = None
 
 # WebRTC
 peer_connections: Dict[str, RTCPeerConnection] = {}
@@ -157,19 +158,6 @@ class ConnectionManager:
 
 websocket_manager = ConnectionManager()
 
-# Initialize terminal manager
-terminal_manager = None
-
-async def get_terminal_manager_instance():
-    """Get or create terminal manager instance"""
-    global terminal_manager
-    if terminal_manager is None:
-        from hub.terminal_manager import TerminalSessionManager
-        redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
-        terminal_manager = TerminalSessionManager(redis_client, websocket_manager)
-        await terminal_manager.start()
-    return terminal_manager
-
 # Add CORS middleware
 cors_config = config.cors_config
 if cors_config.get("enabled", True):
@@ -188,7 +176,7 @@ if cors_config.get("enabled", True):
 @app.on_event("startup")
 async def startup_event():
     """Initialize hub on startup."""
-    global long_term_memory, short_term_memory, being_manager, memory_store, sharing_manager, media_store
+    global long_term_memory, short_term_memory, being_manager, memory_store, sharing_manager, media_store, webssh_proxy
 
     logger.info("=" * 70)
     logger.info("Love-Unlimited Hub - Starting")
@@ -257,11 +245,21 @@ async def startup_event():
     # Start learning loop
     asyncio.create_task(learning_loop())
 
+    # Initialize WebSSH proxy for terminal access
+    webssh_proxy = WebSSHProxy()
+    logger.info("WebSSH proxy initialized - terminal access ready")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up on shutdown."""
+    global webssh_proxy
     logger.info("Love-Unlimited Hub - Shutting down")
+
+    # Shutdown WebSSH proxy
+    if webssh_proxy:
+        await webssh_proxy.close()
+        logger.info("WebSSH proxy closed")
 
 
 # ============================================================================
@@ -4624,340 +4622,51 @@ Please review Grok's response, add your perspective, provide additional depth, a
 
 
 # ============================================================================
-# Terminal WebSocket - SSH Terminal Sessions
+# Terminal - WebSSH Proxy
 # ============================================================================
 
-@app.websocket("/ws/terminal/{session_id}")
-async def websocket_terminal(websocket: WebSocket, session_id: str, api_key: str = Query(..., description="API key for authentication")):
+@app.websocket("/terminal/ws")
+async def terminal_websocket_proxy(websocket: WebSocket):
     """
-    WebSocket endpoint for SSH terminal sessions.
-    Connect with: ws://localhost:9003/ws/terminal/{session_id}?api_key=...
+    Proxy WebSocket connections to WebSSH terminal server.
+
+    WebSSH expects query params: hostname, username, password, port
+    Example: /terminal/ws?hostname=192.168.2.10&username=root&password=xxx&port=22
     """
-    # Authenticate
-    try:
-        auth_manager = get_auth_manager()
-        being_id = auth_manager.verify_key(api_key)
-        if not being_id:
-            await websocket.close(code=4001, reason="Invalid API key")
-            return
-    except Exception as e:
-        logger.error(f"Terminal auth error: {e}")
-        await websocket.close(code=4001, reason="Authentication failed")
+    if not webssh_proxy:
+        await websocket.close(code=1011, reason="WebSSH proxy not initialized")
         return
 
-    # Get terminal manager
-    try:
-        terminal_mgr = await get_terminal_manager_instance()
-    except Exception as e:
-        logger.error(f"Terminal manager error: {e}")
-        await websocket.close(code=4002, reason="Terminal service unavailable")
-        return
+    # Forward all query params to WebSSH
+    from urllib.parse import urlencode
+    query_params = dict(websocket.query_params)
+    path = f"/ws?{urlencode(query_params)}" if query_params else "/ws"
 
-    # Get session
-    session = await terminal_mgr.get_session(session_id)
-    if not session:
-        await websocket.close(code=4003, reason="Session not found")
-        return
+    return await webssh_proxy.proxy_websocket(websocket=websocket, path=path)
 
-    # Attach as viewer
-    if not await terminal_mgr.attach_viewer(session_id, being_id):
-        await websocket.close(code=4003, reason="Cannot join session")
-        return
 
-    await websocket.accept()
+@app.get("/terminal")
+@app.get("/terminal/")
+async def terminal_ui_proxy(request: Request):
+    """Proxy WebSSH HTML UI (xterm.js + Bootstrap interface)"""
+    if not webssh_proxy:
+        raise HTTPException(status_code=503, detail="WebSSH proxy not initialized")
 
-    # Send initial session info
-    await websocket.send_json({
-        "type": "session_info",
-        "session_id": session.session_id,
-        "host": session.host,
-        "username": session.username,
-        "status": session.status,
-        "is_controller": session.controller == being_id,
-        "viewers": list(session.viewers)
-    })
+    return await webssh_proxy.proxy_http(request=request, path="/")
 
-    async def stream_terminal_output():
-        """Stream SSH process output to WebSocket client"""
-        try:
-            while True:
-                if not (session.ssh_client and session.ssh_client.process):
-                    await asyncio.sleep(0.1)
-                    continue
 
-                process = session.ssh_client.process
-                try:
-                    # Read stdout with timeout
-                    stdout_data = await asyncio.wait_for(process.stdout.read(1024), timeout=0.5)
-                    if stdout_data:
-                        # Handle both bytes and str
-                        if isinstance(stdout_data, bytes):
-                            text = stdout_data.decode('utf-8', errors='replace')
-                        else:
-                            text = str(stdout_data)
+@app.get("/terminal/static/{path:path}")
+async def terminal_static_proxy(request: Request, path: str):
+    """Proxy WebSSH static assets (xterm.js, CSS, etc.)"""
+    if not webssh_proxy:
+        raise HTTPException(status_code=503, detail="WebSSH proxy not initialized")
 
-                        await websocket.send_json({
-                            "type": "terminal_output",
-                            "data": text
-                        })
-                except asyncio.TimeoutError:
-                    pass
-                except Exception as e:
-                    logger.debug(f"Stdout read error: {e}")
-
-                try:
-                    # Read stderr with timeout
-                    stderr_data = await asyncio.wait_for(process.stderr.read(1024), timeout=0.5)
-                    if stderr_data:
-                        # Handle both bytes and str
-                        if isinstance(stderr_data, bytes):
-                            text = stderr_data.decode('utf-8', errors='replace')
-                        else:
-                            text = str(stderr_data)
-
-                        await websocket.send_json({
-                            "type": "terminal_output",
-                            "data": text
-                        })
-                except asyncio.TimeoutError:
-                    pass
-                except Exception as e:
-                    logger.debug(f"Stderr read error: {e}")
-
-                # Small delay to prevent busy loop
-                await asyncio.sleep(0.05)
-        except Exception as e:
-            logger.error(f"Terminal output streaming error: {e}")
-
-    try:
-        # Start output streaming task
-        output_task = asyncio.create_task(stream_terminal_output())
-
-        try:
-            while True:
-                # Receive message from client with timeout
-                try:
-                    data = await asyncio.wait_for(websocket.receive_json(), timeout=30)
-                except asyncio.TimeoutError:
-                    # Send ping to keep connection alive
-                    try:
-                        await websocket.send_json({"type": "ping"})
-                    except:
-                        break
-                    continue
-
-                message_type = data.get("type")
-
-                if message_type == "input":
-                    # Handle terminal input (only if controller)
-                    if session.controller == being_id:
-                        input_data = data.get("data", "")
-                        if session.ssh_client and session.ssh_client.process:
-                            try:
-                                # Send to stdin (asyncssh expects str, not bytes)
-                                session.ssh_client.process.stdin.write(input_data)
-                                await session.ssh_client.process.stdin.drain()
-                            except Exception as e:
-                                logger.error(f"Terminal input error: {e}")
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "message": f"Input error: {str(e)}"
-                                })
-
-                elif message_type == "resize":
-                    # Handle terminal resize
-                    rows = data.get("rows", 24)
-                    cols = data.get("cols", 80)
-                    if session.ssh_client and session.ssh_client.process:
-                        try:
-                            session.ssh_client.process.set_window_size(cols, rows)
-                        except Exception as e:
-                            logger.error(f"Terminal resize error: {e}")
-
-                elif message_type == "request_control":
-                    # Request input control
-                    if await terminal_mgr.set_controller(session_id, being_id):
-                        await websocket.send_json({"type": "control_granted"})
-                        # Notify all viewers of controller change
-                        for viewer in session.viewers:
-                            if viewer != being_id:
-                                await websocket_manager.send_personal_message({
-                                    "type": "controller_changed",
-                                    "controller": being_id
-                                }, viewer)
-                    else:
-                        await websocket.send_json({"type": "control_denied"})
-
-                # Update session activity
-                session.last_activity = datetime.now()
-        finally:
-            output_task.cancel()
-            try:
-                await output_task
-            except asyncio.CancelledError:
-                pass
-
-    except WebSocketDisconnect:
-        pass
-    finally:
-        # Detach viewer
-        await terminal_mgr.detach_viewer(session_id, being_id)
+    return await webssh_proxy.proxy_http(request=request, path=f"/static/{path}")
 
 
 # ============================================================================
-# Terminal REST API - Session Management
+# Web CLI
 # ============================================================================
-
-@app.post("/terminal/create", response_model=dict)
-async def create_terminal_session(
-    host: str = Form(...),
-    port: int = Form(22),
-    username: str = Form(...),
-    password: str = Form(None),
-    key_path: str = Form(None),
-    use_agent: bool = Form(False),
-    being_id: str = Depends(verify_api_key)
-):
-    """Create a new SSH terminal session"""
-    try:
-        terminal_mgr = await get_terminal_manager_instance()
-        session_id = await terminal_mgr.create_session(
-            being_id=being_id,
-            host=host,
-            port=port,
-            username=username,
-            password=password,
-            key_path=key_path,
-            use_agent=use_agent
-        )
-
-        return {
-            "success": True,
-            "session_id": session_id,
-            "message": "Terminal session created"
-        }
-    except Exception as e:
-        logger.error(f"Create terminal session error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/terminal/sessions", response_model=dict)
-async def list_terminal_sessions(being_id: str = Depends(verify_api_key)):
-    """List terminal sessions for the authenticated being"""
-    try:
-
-        terminal_mgr = await get_terminal_manager_instance()
-        sessions = await terminal_mgr.list_sessions(being_id)
-
-        return {
-            "success": True,
-            "count": len(sessions),
-            "sessions": [
-                {
-                    "session_id": s.session_id,
-                    "host": s.host,
-                    "username": s.username,
-                    "status": s.status,
-                    "created_at": s.created_at.isoformat(),
-                    "is_controller": s.controller == being_id,
-                    "viewers": list(s.viewers)
-                }
-                for s in sessions
-            ]
-        }
-    except Exception as e:
-        logger.error(f"List terminal sessions error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/terminal/{session_id}", response_model=dict)
-async def close_terminal_session(session_id: str, api_key: str = Depends(verify_api_key)):
-    """Close a terminal session"""
-    try:
-        auth_manager = get_auth_manager()
-        being_id = auth_manager.verify_key(api_key)
-
-        terminal_mgr = await get_terminal_manager_instance()
-        session = await terminal_mgr.get_session(session_id)
-
-        if not session or being_id not in session.viewers:
-            raise HTTPException(status_code=404, detail="Session not found or access denied")
-
-        await terminal_mgr.close_session(session_id)
-
-        return {
-            "success": True,
-            "message": "Terminal session closed"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Close terminal session error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# SSH Credentials API
-# ============================================================================
-
-@app.get("/api/ssh/credentials", response_model=dict)
-async def get_ssh_credentials(api_key: str = Depends(verify_api_key)):
-    """Get SSH credentials configuration"""
-    try:
-        auth_manager = get_auth_manager()
-        being_id = auth_manager.verify_key(api_key)
-
-        config_path = Path("auth/ssh_config.yaml")
-        if not config_path.exists():
-            return {"credentials": {}}
-
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f) or {}
-
-        return config.get("credentials", {})
-    except Exception as e:
-        logger.error(f"Get SSH credentials error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/ssh/credentials", response_model=dict)
-async def add_ssh_credential(
-    name: str = Form(...),
-    host: str = Form(...),
-    port: int = Form(22),
-    username: str = Form(...),
-    auth_method: str = Form("password"),
-    key_path: str = Form(...),
-    api_key: str = Depends(verify_api_key)
-):
-    """Add or update SSH credential"""
-    try:
-        auth_manager = get_auth_manager()
-        being_id = auth_manager.verify_key(api_key)
-
-        config_path = Path("auth/ssh_config.yaml")
-        config = {"credentials": {}}
-
-        if config_path.exists():
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f) or {"credentials": {}}
-
-        config["credentials"][name] = {
-            "host": host,
-            "port": port,
-            "username": username,
-            "auth_method": auth_method,
-            "key_path": key_path
-        }
-
-        with open(config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
-
-        return {
-            "success": True,
-            "message": f"Credential '{name}' saved"
-        }
-    except Exception as e:
-        logger.error(f"Add SSH credential error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/webcli", response_class=HTMLResponse)
 async def web_cli_interface():

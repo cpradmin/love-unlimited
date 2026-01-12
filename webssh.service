@@ -1,0 +1,15 @@
+[Unit]
+Description=WebSSH Terminal Server
+After=network.target
+
+[Service]
+Type=simple
+User=kntrnjb
+WorkingDirectory=/home/kntrnjb/ai-dream-team/micro-ai-swarm/love-unlimited
+Environment=PYTHONPATH=/home/kntrnjb/ai-dream-team/micro-ai-swarm/love-unlimited
+ExecStart=/home/kntrnjb/ai-dream-team/micro-ai-swarm/love-unlimited/venv/bin/python3 run_webssh.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
