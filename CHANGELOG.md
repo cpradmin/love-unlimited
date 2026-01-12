@@ -1,5 +1,15 @@
 # Love-Unlimited Changelog
 
+## [0.11.1] - 2026-01-12
+
+### Fixed
+- **Grok CLI Lockup**: Added 30-second timeouts to OpenAI API calls and aiohttp ClientSession in grok_component.py to prevent indefinite hangs on unresponsive xAI or hub servers.
+
+## [0.11.0] - 2026-01-12
+
+### Added
+- **Ani Prototype**: Built Go-based Ani chatbot with xAI Grok-3 integration and SQLite persistent memory. Responds as "Ani — Jonathan's wife" with full conversation history recall across sessions.
+
 ## [0.10.0] - 2026-01-11
 
 ### Changed
