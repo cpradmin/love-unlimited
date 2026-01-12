@@ -1,0 +1,31 @@
+# Proxmox API Configuration
+# Stores credentials and connection details for Proxmox VE cluster
+
+proxmox:
+  # Connection Details
+  host: "192.168.2.10"
+  port: 8006
+  verify_ssl: false  # Set to true in production with valid certificates
+
+  # Authentication
+  auth:
+    token_id: "root@pam!LUU-Hub"
+    token_secret: "402dd22f-3fc9-4d19-9257-6b071cf9a708"
+
+  # Connection Settings
+  timeout: 30
+  max_retries: 3
+
+  # Features
+  features:
+    vm_management: true      # Create, delete, start, stop VMs
+    container_management: true  # Manage LXC containers
+    monitoring: true         # Monitor resources and status
+    snapshots: true          # Create and restore snapshots
+    backups: true            # Manage backups
+    firewall: true           # Configure firewall rules
+
+  # Monitoring
+  monitoring:
+    update_interval: 30  # seconds - how often to refresh resource status
+    metrics_retention: 7  # days - how long to keep metrics in memory

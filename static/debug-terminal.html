@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Debug - Love Unlimited</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #00ffff;
+            text-align: center;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .section {
+            background-color: #0d0d0d;
+            border: 1px solid #00ff00;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        .section h2 {
+            color: #ffff00;
+            border-bottom: 1px solid #00ff00;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .status.ok {
+            background-color: #004400;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+        }
+        .status.error {
+            background-color: #440000;
+            color: #ff0000;
+            border: 1px solid #ff0000;
+        }
+        .status.warning {
+            background-color: #444400;
+            color: #ffff00;
+            border: 1px solid #ffff00;
+        }
+        code {
+            background-color: #0d0d0d;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .log {
+            background-color: #0d0d0d;
+            border: 1px solid #333;
+            padding: 10px;
+            margin: 10px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        button {
+            background-color: #00ff00;
+            color: #000;
+            border: none;
+            padding: 8px 15px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #00cc00;
+        }
+        input {
+            background-color: #1e1e1e;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 8px;
+            margin: 5px;
+            border-radius: 3px;
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Terminal Debug Dashboard</h1>
+
+    <div class="container">
+        <!-- URL Parameters -->
+        <div class="section">
+            <h2>1. URL Parameters Check</h2>
+            <div id="url-check"></div>
+            <input type="text" id="api-key-input" placeholder="Enter API Key manually">
+            <button onclick="testWithManualKey()">Test with Manual Key</button>
+        </div>
+
+        <!-- API Key Validation -->
+        <div class="section">
+            <h2>2. API Key Status</h2>
+            <div id="api-key-status"></div>
+        </div>
+
+        <!-- Hub Connection Test -->
+        <div class="section">
+            <h2>3. Hub Connection Test</h2>
+            <button onclick="testHubHealth()">Test Hub Health</button>
+            <div id="hub-test"></div>
+        </div>
+
+        <!-- SSH Credentials Endpoint Test -->
+        <div class="section">
+            <h2>4. SSH Credentials Endpoint Test</h2>
+            <button onclick="testSSHCredentials()">Test /api/ssh/credentials</button>
+            <div id="ssh-test"></div>
+            <div id="ssh-log" class="log"></div>
+        </div>
+
+        <!-- Terminal Sessions Test -->
+        <div class="section">
+            <h2>5. Terminal Sessions Endpoint Test</h2>
+            <button onclick="testTerminalSessions()">Test /terminal/sessions</button>
+            <div id="sessions-test"></div>
+            <div id="sessions-log" class="log"></div>
+        </div>
+
+        <!-- WebSocket Test -->
+        <div class="section">
+            <h2>6. WebSocket Test</h2>
+            <button onclick="testWebSocket()">Test WebSocket Connection</button>
+            <div id="ws-test"></div>
+            <div id="ws-log" class="log"></div>
+        </div>
+
+        <!-- All Tests Summary -->
+        <div class="section">
+            <h2>7. Run All Tests</h2>
+            <button onclick="runAllTests()">▶ Run All Tests</button>
+            <div id="all-tests"></div>
+        </div>
+    </div>
+
+    <script>
+        let apiKey = null;
+        let testResults = {};
+
+        function log(elementId, message, type = 'info') {
+            const logElement = document.getElementById(elementId);
+            if (logElement) {
+                const timestamp = new Date().toLocaleTimeString();
+                const line = `[${timestamp}] ${message}`;
+                logElement.innerHTML += line + '\n';
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+            console.log(message);
+        }
+
+        function setStatus(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.innerHTML = `<div class="status ${type === 'ok' ? 'ok' : type === 'error' ? 'error' : 'warning'}">${message}</div>`;
+            }
+        }
+
+        // Check URL parameters
+        function checkURLParameters() {
+            const urlParams = new URLSearchParams(window.location.search);
+            apiKey = urlParams.get('api_key');
+
+            const checkDiv = document.getElementById('url-check');
+            if (apiKey) {
+                setStatus('api-key-status', `✓ API Key found: ${apiKey.substring(0, 15)}...`, 'ok');
+                checkDiv.innerHTML = `<div class="status ok">✓ API Key found in URL</div>`;
+            } else {
+                checkDiv.innerHTML = `<div class="status error">✗ No API Key in URL</div>`;
+                setStatus('api-key-status', '✗ No API Key found in URL parameters', 'error');
+            }
+        }
+
+        function testWithManualKey() {
+            apiKey = document.getElementById('api-key-input').value;
+            if (apiKey) {
+                setStatus('api-key-status', `✓ API Key set: ${apiKey.substring(0, 15)}...`, 'ok');
+                testSSHCredentials();
+            } else {
+                setStatus('api-key-status', '✗ Please enter an API Key', 'error');
+            }
+        }
+
+        async function testHubHealth() {
+            try {
+                const response = await fetch('http://localhost:9004/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    setStatus('hub-test', `✓ Hub is operational (v${data.version})`, 'ok');
+                    testResults.hub = true;
+                } else {
+                    setStatus('hub-test', `✗ Hub returned status ${response.status}`, 'error');
+                    testResults.hub = false;
+                }
+            } catch (error) {
+                setStatus('hub-test', `✗ Hub connection failed: ${error.message}`, 'error');
+                testResults.hub = false;
+            }
+        }
+
+        async function testSSHCredentials() {
+            if (!apiKey) {
+                setStatus('ssh-test', '✗ No API Key provided', 'error');
+                return;
+            }
+
+            try {
+                log('ssh-log', `Testing /api/ssh/credentials with key: ${apiKey.substring(0, 15)}...`);
+                const response = await fetch('http://localhost:9004/api/ssh/credentials', {
+                    headers: { 'X-API-Key': apiKey }
+                });
+
+                log('ssh-log', `Response status: ${response.status}`);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const credCount = Object.keys(data).length;
+                    setStatus('ssh-test', `✓ Got ${credCount} SSH credentials`, 'ok');
+                    log('ssh-log', `Credentials loaded: ${JSON.stringify(data, null, 2)}`);
+                    testResults.ssh = true;
+                } else {
+                    const error = await response.text();
+                    setStatus('ssh-test', `✗ Failed with status ${response.status}`, 'error');
+                    log('ssh-log', `Error response: ${error}`);
+                    testResults.ssh = false;
+                }
+            } catch (error) {
+                setStatus('ssh-test', `✗ Connection error: ${error.message}`, 'error');
+                log('ssh-log', `Exception: ${error.message}`);
+                testResults.ssh = false;
+            }
+        }
+
+        async function testTerminalSessions() {
+            if (!apiKey) {
+                setStatus('sessions-test', '✗ No API Key provided', 'error');
+                return;
+            }
+
+            try {
+                log('sessions-log', `Testing /terminal/sessions with key: ${apiKey.substring(0, 15)}...`);
+                const response = await fetch('http://localhost:9004/terminal/sessions', {
+                    headers: { 'X-API-Key': apiKey }
+                });
+
+                log('sessions-log', `Response status: ${response.status}`);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setStatus('sessions-test', `✓ Terminal sessions endpoint working`, 'ok');
+                    log('sessions-log', `Response: ${JSON.stringify(data, null, 2)}`);
+                    testResults.sessions = true;
+                } else {
+                    const error = await response.text();
+                    setStatus('sessions-test', `✗ Failed with status ${response.status}`, 'error');
+                    log('sessions-log', `Error response: ${error}`);
+                    testResults.sessions = false;
+                }
+            } catch (error) {
+                setStatus('sessions-test', `✗ Connection error: ${error.message}`, 'error');
+                log('sessions-log', `Exception: ${error.message}`);
+                testResults.sessions = false;
+            }
+        }
+
+        function testWebSocket() {
+            if (!apiKey) {
+                setStatus('ws-test', '✗ No API Key provided', 'error');
+                return;
+            }
+
+            try {
+                const sessionId = 'test-' + Date.now();
+                const wsUrl = `ws://localhost:9004/ws/terminal/${sessionId}?api_key=${apiKey}`;
+                log('ws-log', `Connecting to: ${wsUrl}`);
+
+                const ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    setStatus('ws-test', `✓ WebSocket connected`, 'ok');
+                    log('ws-log', 'WebSocket connection established');
+                    testResults.websocket = true;
+                    ws.close();
+                };
+
+                ws.onerror = (error) => {
+                    setStatus('ws-test', `✗ WebSocket error`, 'error');
+                    log('ws-log', `WebSocket error: ${error}`);
+                    testResults.websocket = false;
+                };
+
+                ws.onclose = () => {
+                    log('ws-log', 'WebSocket closed');
+                };
+
+                // Timeout after 5 seconds
+                setTimeout(() => {
+                    if (ws.readyState !== WebSocket.OPEN) {
+                        setStatus('ws-test', `✗ WebSocket timeout (5s)`, 'error');
+                        log('ws-log', 'Connection timeout - no response in 5 seconds');
+                        testResults.websocket = false;
+                        ws.close();
+                    }
+                }, 5000);
+            } catch (error) {
+                setStatus('ws-test', `✗ WebSocket error: ${error.message}`, 'error');
+                log('ws-log', `Exception: ${error.message}`);
+                testResults.websocket = false;
+            }
+        }
+
+        async function runAllTests() {
+            const allTestsDiv = document.getElementById('all-tests');
+            allTestsDiv.innerHTML = '<div class="status warning">⏳ Running all tests...</div>';
+
+            checkURLParameters();
+            await testHubHealth();
+            await testSSHCredentials();
+            await testTerminalSessions();
+            testWebSocket();
+
+            // Wait a bit for async operations
+            setTimeout(() => {
+                const passed = Object.values(testResults).filter(r => r).length;
+                const total = Object.keys(testResults).length;
+
+                let html = `<div class="status ${passed === total ? 'ok' : 'error'}">`;
+                html += `${passed}/${total} tests passed`;
+                html += '</div>';
+
+                allTestsDiv.innerHTML = html;
+            }, 1000);
+        }
+
+        // Run on load
+        window.addEventListener('load', () => {
+            checkURLParameters();
+        });
+    </script>
+</body>
+</html>

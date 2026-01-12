@@ -156,8 +156,8 @@ async def test_send_command(session_id):
             async with session.ws_connect(ws_url, timeout=10) as ws:
                 print(f"Sending command: hostname")
 
-                # Send command
-                await ws.send_str("hostname\n")
+                # Send command as JSON (WebSocket protocol expects {"type": "input", "data": "..."})
+                await ws.send_json({"type": "input", "data": "hostname\n"})
                 print("✓ Command sent")
 
                 # Wait for response
@@ -216,7 +216,7 @@ async def test_system_info(session_id):
 
                 for cmd in commands:
                     print(f"\n  Command: {cmd}")
-                    await ws.send_str(f"{cmd}\n")
+                    await ws.send_json({"type": "input", "data": f"{cmd}\n"})
 
                     try:
                         async with asyncio.timeout(3):

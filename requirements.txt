@@ -77,6 +77,18 @@ ruff>=0.1.11
 google-generativeai>=0.3.0    # Google Gemini AI support
 
 # ============================================
+# INFRASTRUCTURE MANAGEMENT
+# ============================================
+proxmoxer>=1.4.1              # Proxmox API client
+
+# ============================================
+# TERMINAL SERVER (WebSSH)
+# ============================================
+webssh>=1.6.3                 # Web-based SSH terminal server (xterm.js + Paramiko)
+tornado>=6.5.4                # Async web framework for WebSSH
+paramiko>=4.0.0               # SSH client library (included with webssh)
+
+# ============================================
 # REMOVED: Unused dependencies
 # ============================================
 # python-jose - REMOVED (unmaintained since 2021, not used in codebase)

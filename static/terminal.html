@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Mesh Dashboard</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #0f0;
+            margin: 0;
+            padding: 20px;
+            overflow: hidden;
+        }
+        h1 {
+            color: #0ff;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            height: 90vh;
+        }
+        .sidebar {
+            width: 300px;
+            border-right: 1px solid #0f0;
+            padding: 10px;
+            overflow-y: auto;
+        }
+        .main {
+            flex: 1;
+            padding: 10px;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+        .section h2 {
+            color: #ff0;
+            border-bottom: 1px solid #0f0;
+            padding-bottom: 5px;
+        }
+        .device-list, .session-list {
+            list-style: none;
+            padding: 0;
+        }
+        .device-list li, .session-list li {
+            background-color: #111;
+            margin: 5px 0;
+            padding: 10px;
+            border: 1px solid #333;
+            cursor: pointer;
+        }
+        .device-list li:hover, .session-list li:hover {
+            background-color: #333;
+        }
+        .terminal {
+            background-color: #000;
+            border: 1px solid #0f0;
+            height: 60vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            padding: 10px;
+            font-size: 14px;
+        }
+        .input-area {
+            margin-top: 10px;
+        }
+        input, button {
+            background-color: #000;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 5px;
+        }
+        button {
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #333;
+        }
+        .status {
+            color: #f00;
+        }
+    </style>
+</head>
+<body>
+    <h1>Terminal Mesh Dashboard</h1>
+    <div class="container">
+        <div class="sidebar">
+            <div class="section">
+                <h2>Available Devices</h2>
+                <ul id="device-list" class="device-list">
+                    <!-- Devices will be loaded here -->
+                </ul>
+                <button onclick="refreshDevices()">Refresh Devices</button>
+            </div>
+            <div class="section">
+                <h2>Active Sessions</h2>
+                <ul id="session-list" class="session-list">
+                    <!-- Sessions will be loaded here -->
+                </ul>
+                <button onclick="refreshSessions()">Refresh Sessions</button>
+            </div>
+            <div class="section">
+                <h2>SSH Credentials</h2>
+                <ul id="credential-list" class="device-list">
+                    <!-- Credentials will be loaded here -->
+                </ul>
+                <button onclick="refreshCredentials()">Refresh Credentials</button>
+                <button onclick="showAddCredentialForm()">Add Credential</button>
+                <div id="add-credential-form" style="display: none; margin-top: 10px;">
+                    <input type="text" id="cred-name" placeholder="Name" /><br>
+                    <input type="text" id="cred-host" placeholder="Host" /><br>
+                    <input type="number" id="cred-port" placeholder="Port" value="22" /><br>
+                    <input type="text" id="cred-username" placeholder="Username" /><br>
+                    <select id="cred-auth-method">
+                        <option value="password">Password</option>
+                        <option value="key">Key File</option>
+                    </select><br>
+                    <input type="password" id="cred-password" placeholder="Password/Key Path" /><br>
+                    <button onclick="addCredential()">Save</button>
+                    <button onclick="hideAddCredentialForm()">Cancel</button>
+                </div>
+            </div>
+        </div>
+        <div class="main">
+            <div class="section">
+                <h2>Terminal Output</h2>
+                <div id="terminal" class="terminal"></div>
+                <div class="input-area">
+                    <input type="text" id="command-input" placeholder="Enter command" style="width: 70%;" />
+                    <button onclick="sendCommand()">Send</button>
+                    <button onclick="clearTerminal()">Clear</button>
+                </div>
+                <div id="status" class="status"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let currentSessionId = null;
+        const terminalDiv = document.getElementById('terminal');
+        const statusDiv = document.getElementById('status');
+        const commandInput = document.getElementById('command-input');
+
+        // Get API key from URL param or prompt
+        const urlParams = new URLSearchParams(window.location.search);
+        let apiKey = urlParams.get('api_key') || prompt('Enter API Key:');
+
+        function updateStatus(message) {
+            statusDiv.textContent = message;
+        }
+
+        async function refreshDevices() {
+            // Temporary: hardcoded devices from network scan
+            const devices = [
+                { name: 'proxmox.bailey-home.org', host: '192.168.2.10' },
+                { name: 'kntrnjb.bailey-home.org', host: '192.168.2.148' },
+                { name: 'OPNsense.bailey-home.org', host: '192.168.2.1' },
+                { name: 'DESKTOP-PLHOM79', host: '192.168.2.155' }
+            ];
+            const deviceList = document.getElementById('device-list');
+            deviceList.innerHTML = '';
+            devices.forEach(device => {
+                const li = document.createElement('li');
+                li.textContent = `${device.name} (${device.host})`;
+                li.onclick = () => createSession(device.host);
+                deviceList.appendChild(li);
+            });
+            updateStatus('Devices loaded (hardcoded for now)');
+        }
+
+        async function createSession(host) {
+            try {
+                // Get credentials to find matching host
+                const credResponse = await fetch('/api/ssh/credentials', {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                let cred = null;
+                if (credResponse.ok) {
+                    const creds = await credResponse.json();
+                    // Find credential by host
+                    for (const [name, c] of Object.entries(creds)) {
+                        if (c.host === host) {
+                            cred = c;
+                            break;
+                        }
+                    }
+                }
+
+                const formData = new FormData();
+                formData.append('host', host);
+                formData.append('port', cred ? cred.port : '22');
+                formData.append('username', cred ? cred.username : 'root');
+                if (cred && cred.auth_method === 'password') {
+                    formData.append('password', cred.key_path);
+                } else if (cred) {
+                    formData.append('key_path', cred.key_path);
+                }
+
+                const response = await fetch('/terminal/create', {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': apiKey
+                    },
+                    body: formData
+                });
+                if (response.ok) {
+                    const session = await response.json();
+                    connectWebSocket(session.session_id);
+                    refreshSessions();
+                } else {
+                    updateStatus('Failed to create session');
+                }
+            } catch (error) {
+                updateStatus('Error creating session: ' + error.message);
+            }
+        }
+
+        async function refreshSessions() {
+            try {
+                const response = await fetch('/terminal/sessions', {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    const sessions = data.sessions || [];
+                    const sessionList = document.getElementById('session-list');
+                    sessionList.innerHTML = '';
+                    sessions.forEach(session => {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<span>Session ${session.session_id} (${session.host}) - ${session.status}</span>
+                                        <button onclick="connectSession('${session.session_id}')">Connect</button>
+                                        <button onclick="terminateSession('${session.session_id}')">Terminate</button>`;
+                        sessionList.appendChild(li);
+                    });
+                } else {
+                    updateStatus('Failed to load sessions');
+                }
+            } catch (error) {
+                updateStatus('Error loading sessions: ' + error.message);
+            }
+        }
+
+        function connectSession(sessionId) {
+            connectWebSocket(sessionId);
+        }
+
+        function connectWebSocket(sessionId) {
+            if (ws) ws.close();
+            currentSessionId = sessionId;
+            ws = new WebSocket(`ws://${window.location.host}/ws/terminal/${sessionId}`);
+
+            ws.onopen = () => {
+                updateStatus('Connected to terminal session ' + sessionId);
+            };
+
+            ws.onmessage = (event) => {
+                terminalDiv.textContent += event.data;
+                terminalDiv.scrollTop = terminalDiv.scrollHeight;
+            };
+
+            ws.onclose = () => {
+                updateStatus('Disconnected from terminal session');
+            };
+
+            ws.onerror = (error) => {
+                updateStatus('WebSocket error: ' + error);
+            };
+        }
+
+        async function terminateSession(sessionId) {
+            try {
+                const response = await fetch(`/terminal/${sessionId}`, {
+                    method: 'DELETE',
+                    headers: { 'X-API-Key': apiKey }
+                });
+                if (response.ok) {
+                    updateStatus('Session terminated');
+                    refreshSessions();
+                    if (currentSessionId === sessionId) {
+                        if (ws) ws.close();
+                        updateStatus('Current session terminated');
+                    }
+                } else {
+                    updateStatus('Failed to terminate session');
+                }
+            } catch (error) {
+                updateStatus('Error terminating session: ' + error.message);
+            }
+        }
+
+        async function refreshCredentials() {
+            try {
+                const response = await fetch('/api/ssh/credentials', {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                if (response.ok) {
+                    const credentials = await response.json();
+                    const credentialList = document.getElementById('credential-list');
+                    credentialList.innerHTML = '';
+                    Object.keys(credentials).forEach(name => {
+                        const cred = credentials[name];
+                        const li = document.createElement('li');
+                        li.textContent = `${name}: ${cred.username}@${cred.host}:${cred.port}`;
+                        credentialList.appendChild(li);
+                    });
+                } else {
+                    updateStatus('Failed to load credentials');
+                }
+            } catch (error) {
+                updateStatus('Error loading credentials: ' + error.message);
+            }
+        }
+
+        function showAddCredentialForm() {
+            document.getElementById('add-credential-form').style.display = 'block';
+        }
+
+        function hideAddCredentialForm() {
+            document.getElementById('add-credential-form').style.display = 'none';
+        }
+
+        async function addCredential() {
+            const name = document.getElementById('cred-name').value;
+            const host = document.getElementById('cred-host').value;
+            const port = document.getElementById('cred-port').value;
+            const username = document.getElementById('cred-username').value;
+            const authMethod = document.getElementById('cred-auth-method').value;
+            const password = document.getElementById('cred-password').value;
+
+            try {
+                const response = await fetch('/api/ssh/credentials', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        host: host,
+                        port: parseInt(port),
+                        username: username,
+                        auth_method: authMethod,
+                        key_path: password
+                    })
+                });
+                if (response.ok) {
+                    updateStatus('Credential added');
+                    refreshCredentials();
+                    hideAddCredentialForm();
+                } else {
+                    updateStatus('Failed to add credential');
+                }
+            } catch (error) {
+                updateStatus('Error adding credential: ' + error.message);
+            }
+        }
+
+        function sendCommand() {
+            const command = commandInput.value;
+            if (ws && ws.readyState === WebSocket.OPEN && command) {
+                ws.send(command + '\n');
+                commandInput.value = '';
+            } else {
+                updateStatus('No active session or command empty');
+            }
+        }
+
+        function clearTerminal() {
+            terminalDiv.textContent = '';
+        }
+
+        // Enter key to send command
+        commandInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendCommand();
+            }
+        });
+
+        // Load initial data
+        refreshDevices();
+        refreshSessions();
+        refreshCredentials();
+    </script>
+</body>
+</html>

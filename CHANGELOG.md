@@ -4,6 +4,7 @@
 
 ### Fixed
 - **Grok CLI Lockup**: Added 30-second timeouts to OpenAI API calls and aiohttp ClientSession in grok_component.py to prevent indefinite hangs on unresponsive xAI or hub servers.
+- **Hub Port Mismatch**: Updated hub port from 9003 to 9004 in grok_component.py to match actual hub configuration.
 
 ## [0.11.0] - 2026-01-12
 

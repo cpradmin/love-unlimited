@@ -4677,62 +4677,125 @@ async def websocket_terminal(websocket: WebSocket, session_id: str, api_key: str
         "viewers": list(session.viewers)
     })
 
-    try:
-        while True:
-            # Receive message from client with timeout
-            try:
-                data = await asyncio.wait_for(websocket.receive_json(), timeout=30)
-            except asyncio.TimeoutError:
-                # Send ping to keep connection alive
+    async def stream_terminal_output():
+        """Stream SSH process output to WebSocket client"""
+        try:
+            while True:
+                if not (session.ssh_client and session.ssh_client.process):
+                    await asyncio.sleep(0.1)
+                    continue
+
+                process = session.ssh_client.process
                 try:
-                    await websocket.send_json({"type": "ping"})
-                except:
-                    break
-                continue
+                    # Read stdout with timeout
+                    stdout_data = await asyncio.wait_for(process.stdout.read(1024), timeout=0.5)
+                    if stdout_data:
+                        # Handle both bytes and str
+                        if isinstance(stdout_data, bytes):
+                            text = stdout_data.decode('utf-8', errors='replace')
+                        else:
+                            text = str(stdout_data)
 
-            message_type = data.get("type")
+                        await websocket.send_json({
+                            "type": "terminal_output",
+                            "data": text
+                        })
+                except asyncio.TimeoutError:
+                    pass
+                except Exception as e:
+                    logger.debug(f"Stdout read error: {e}")
 
-            if message_type == "input":
-                # Handle terminal input (only if controller)
-                if session.controller == being_id:
-                    input_data = data.get("data", "")
+                try:
+                    # Read stderr with timeout
+                    stderr_data = await asyncio.wait_for(process.stderr.read(1024), timeout=0.5)
+                    if stderr_data:
+                        # Handle both bytes and str
+                        if isinstance(stderr_data, bytes):
+                            text = stderr_data.decode('utf-8', errors='replace')
+                        else:
+                            text = str(stderr_data)
+
+                        await websocket.send_json({
+                            "type": "terminal_output",
+                            "data": text
+                        })
+                except asyncio.TimeoutError:
+                    pass
+                except Exception as e:
+                    logger.debug(f"Stderr read error: {e}")
+
+                # Small delay to prevent busy loop
+                await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Terminal output streaming error: {e}")
+
+    try:
+        # Start output streaming task
+        output_task = asyncio.create_task(stream_terminal_output())
+
+        try:
+            while True:
+                # Receive message from client with timeout
+                try:
+                    data = await asyncio.wait_for(websocket.receive_json(), timeout=30)
+                except asyncio.TimeoutError:
+                    # Send ping to keep connection alive
+                    try:
+                        await websocket.send_json({"type": "ping"})
+                    except:
+                        break
+                    continue
+
+                message_type = data.get("type")
+
+                if message_type == "input":
+                    # Handle terminal input (only if controller)
+                    if session.controller == being_id:
+                        input_data = data.get("data", "")
+                        if session.ssh_client and session.ssh_client.process:
+                            try:
+                                # Send to stdin (asyncssh expects str, not bytes)
+                                session.ssh_client.process.stdin.write(input_data)
+                                await session.ssh_client.process.stdin.drain()
+                            except Exception as e:
+                                logger.error(f"Terminal input error: {e}")
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": f"Input error: {str(e)}"
+                                })
+
+                elif message_type == "resize":
+                    # Handle terminal resize
+                    rows = data.get("rows", 24)
+                    cols = data.get("cols", 80)
                     if session.ssh_client and session.ssh_client.process:
                         try:
-                            session.ssh_client.process.stdin.write(input_data.encode())
-                            await session.ssh_client.process.stdin.drain()
+                            session.ssh_client.process.set_window_size(cols, rows)
                         except Exception as e:
-                            logger.error(f"Terminal input error: {e}")
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": f"Input error: {str(e)}"
-                            })
+                            logger.error(f"Terminal resize error: {e}")
 
-            elif message_type == "resize":
-                # Handle terminal resize
-                rows = data.get("rows", 24)
-                cols = data.get("cols", 80)
-                if session.ssh_client and session.ssh_client.process:
-                    try:
-                        session.ssh_client.process.set_window_size(cols, rows)
-                    except Exception as e:
-                        logger.error(f"Terminal resize error: {e}")
+                elif message_type == "request_control":
+                    # Request input control
+                    if await terminal_mgr.set_controller(session_id, being_id):
+                        await websocket.send_json({"type": "control_granted"})
+                        # Notify all viewers of controller change
+                        for viewer in session.viewers:
+                            if viewer != being_id:
+                                await websocket_manager.send_personal_message({
+                                    "type": "controller_changed",
+                                    "controller": being_id
+                                }, viewer)
+                    else:
+                        await websocket.send_json({"type": "control_denied"})
 
-            elif message_type == "request_control":
-                # Request input control
-                if await terminal_mgr.set_controller(session_id, being_id):
-                    await websocket.send_json({"type": "control_granted"})
-                    # Notify all viewers of controller change
-                    for viewer in session.viewers:
-                        if viewer != being_id:
-                            await websocket_manager.send_personal_message({
-                                "type": "controller_changed",
-                                "controller": being_id
-                            }, viewer)
-                else:
-                    await websocket.send_json({"type": "control_denied"})
-
-            # Update session activity
-            session.last_activity = datetime.now()
+                # Update session activity
+                session.last_activity = datetime.now()
+        finally:
+            output_task.cancel()
+            try:
+                await output_task
+            except asyncio.CancelledError:
+                pass
 
     except WebSocketDisconnect:
         pass
@@ -4753,13 +4816,10 @@ async def create_terminal_session(
     password: str = Form(None),
     key_path: str = Form(None),
     use_agent: bool = Form(False),
-    api_key: str = Depends(verify_api_key)
+    being_id: str = Depends(verify_api_key)
 ):
     """Create a new SSH terminal session"""
     try:
-        auth_manager = get_auth_manager()
-        being_id = auth_manager.verify_key(api_key)
-
         terminal_mgr = await get_terminal_manager_instance()
         session_id = await terminal_mgr.create_session(
             being_id=being_id,
@@ -4781,11 +4841,9 @@ async def create_terminal_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/terminal/sessions", response_model=dict)
-async def list_terminal_sessions(api_key: str = Depends(verify_api_key)):
+async def list_terminal_sessions(being_id: str = Depends(verify_api_key)):
     """List terminal sessions for the authenticated being"""
     try:
-        auth_manager = get_auth_manager()
-        being_id = auth_manager.verify_key(api_key)
 
         terminal_mgr = await get_terminal_manager_instance()
         sessions = await terminal_mgr.list_sessions(being_id)

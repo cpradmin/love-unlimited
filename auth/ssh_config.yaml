@@ -1,0 +1,19 @@
+credentials:
+  proxmox:
+    host: 192.168.2.10
+    port: 22
+    username: root
+    auth_method: password
+    key_path: T@mpa.2017
+  debian_vm:
+    host: 192.168.2.78
+    port: 22
+    username: debian
+    auth_method: password
+    password: T@mpa.2017
+  local:
+    host: localhost
+    port: 22
+    username: kntrnjb
+    auth_method: password
+    password: T@mpa.2017

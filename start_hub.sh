@@ -14,4 +14,4 @@ if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
 fi
 
-python -m uvicorn hub.main:app --host 0.0.0.0 --port 9003 --log-level info
+python -m uvicorn hub.main:app --host 0.0.0.0 --port 9004 --log-level info

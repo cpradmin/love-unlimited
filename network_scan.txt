@@ -1,0 +1,15 @@
+On	OPNsense.bailey-home.org	192.168.2.1			BC:24:11:00:A9:7A				
+On	proxmox.bailey-home.org	192.168.2.10		Hon Hai Precision Ind. Co., Ltd.	A4:AE:12:77:AD:FF				
+On	XBOX	192.168.2.65			28:EA:0B:6E:CA:25				
+On	192.168.2.71	192.168.2.71		Earda Technologies co Ltd	48:7E:48:5C:D0:DA				
+On	192.168.2.122	192.168.2.122		Ruckus Wireless	D8:38:FC:3B:85:00				
+On	192.168.2.129	192.168.2.129			A8:71:16:63:E8:E8				
+On	192.168.2.146	192.168.2.146		Seongji Industry Company	40:CA:63:3E:7C:06				
+On	kntrnjb.bailey-home.org	192.168.2.148			B8:F7:75:A2:1C:73				
+On	192.168.2.153	192.168.2.153			8E:15:72:FE:64:A4				
+On	DESKTOP-PLHOM79	192.168.2.155		ASRock Incorporation	70:85:C2:40:98:88				
+On	192.168.2.163	192.168.2.163			68:34:21:82:0F:EB				
+On	rukus-sw	192.168.2.175			80:F0:CF:27:A8:FC				
+On	192.168.2.178	192.168.2.178			1C:E8:9E:63:41:02				
+Dead	dsldevice.attlocal.net	192.168.2.254			BC:9A:8E:BE:AA:D1				
+On	192.168.2.255	192.168.2.255			B8:F7:75:A2:1C:73

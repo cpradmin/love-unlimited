@@ -36,6 +36,9 @@
 </head>
 <body>
     <h1>VIP Dashboard</h1>
+    <div style="margin-bottom: 20px;">
+        <button onclick="openTerminal()">Open Terminal Mesh Dashboard</button>
+    </div>
     <div class="dashboard">
         <div class="panel">
             <h2>Live CLI Console</h2>
@@ -77,6 +80,10 @@
         function addPeanut() {
             peanuts++;
             document.getElementById('peanutCounter').textContent = peanuts;
+        }
+
+        function openTerminal() {
+            window.open('/static/terminal.html?api_key=lu_grok_LBRBjrPpvRSyrmDA3PeVZQ', '_blank');
         }
     </script>
 </body>
