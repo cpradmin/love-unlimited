@@ -6,6 +6,7 @@ FastAPI server for memory sovereignty.
 import logging
 import asyncio
 import json
+import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -34,6 +35,20 @@ from memory.media_store import MediaStore
 from beings import BeingManager
 from hub.ai_clients import ai_manager
 from web_browsing_agent import WebBrowsingAgent
+from hub.proxmox_client import get_proxmox_client
+# Terminal manager will be initialized later
+from hub.proxmox_models import (
+    NodesListResponse,
+    VMsListResponse,
+    ContainersListResponse,
+    ProxmoxHealthResponse,
+    ClusterResourcesResponse,
+    VMActionResponse,
+    VMActionRequest,
+    CreateSnapshotRequest,
+    RestoreSnapshotRequest,
+    SnapshotsListResponse,
+)
 
 # Global SSE broadcast variables
 redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
@@ -141,6 +156,19 @@ class ConnectionManager:
             await connection.send_json(message)
 
 websocket_manager = ConnectionManager()
+
+# Initialize terminal manager
+terminal_manager = None
+
+async def get_terminal_manager_instance():
+    """Get or create terminal manager instance"""
+    global terminal_manager
+    if terminal_manager is None:
+        from hub.terminal_manager import TerminalSessionManager
+        redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+        terminal_manager = TerminalSessionManager(redis_client, websocket_manager)
+        await terminal_manager.start()
+    return terminal_manager
 
 # Add CORS middleware
 cors_config = config.cors_config
@@ -3743,6 +3771,11 @@ async def media_sharing_page(
                 margin: 10px 0;
             }}
         </style>
+
+        <!-- xterm.js for terminal emulation -->
+        <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
     </head>
     <body>
         <div class="container">
@@ -3859,6 +3892,403 @@ async def media_sharing_page(
     """
 
     return HTMLResponse(content=html_content)
+
+
+# ============================================================================
+# Proxmox Infrastructure Management
+# ============================================================================
+
+@app.get("/proxmox/health", response_model=dict)
+async def proxmox_health(api_key: str = Depends(verify_api_key)):
+    """Check Proxmox connection and health status"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if proxmox.is_connected():
+            resources = proxmox.get_cluster_resources()
+            return {
+                "success": True,
+                "connected": True,
+                "message": "Connected to Proxmox",
+                "host": proxmox.config["host"],
+                "resources": resources
+            }
+        else:
+            return {
+                "success": False,
+                "connected": False,
+                "message": "Not connected to Proxmox",
+                "host": proxmox.config["host"]
+            }
+    except Exception as e:
+        logger.error(f"Proxmox health check failed: {str(e)}")
+        return {
+            "success": False,
+            "connected": False,
+            "message": f"Error checking Proxmox health: {str(e)}"
+        }
+
+
+@app.get("/proxmox/nodes", response_model=dict)
+async def proxmox_list_nodes(api_key: str = Depends(verify_api_key)):
+    """List all Proxmox cluster nodes"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        nodes = proxmox.get_nodes()
+        return {
+            "success": True,
+            "count": len(nodes),
+            "nodes": nodes
+        }
+    except Exception as e:
+        logger.error(f"Failed to list nodes: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/proxmox/nodes/{node_name}")
+async def proxmox_node_status(node_name: str, api_key: str = Depends(verify_api_key)):
+    """Get detailed status of a specific node"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        status = proxmox.get_node_status(node_name)
+        if not status:
+            raise HTTPException(status_code=404, detail=f"Node {node_name} not found")
+
+        return {
+            "success": True,
+            "data": status
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get node status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/proxmox/vms", response_model=dict)
+async def proxmox_list_vms(
+    node: Optional[str] = Query(None, description="Optional node filter"),
+    api_key: str = Depends(verify_api_key)
+):
+    """List all virtual machines"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        vms = proxmox.list_vms(node=node)
+        return {
+            "success": True,
+            "count": len(vms),
+            "vms": vms
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list VMs: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/proxmox/vms/{node}/{vmid}")
+async def proxmox_vm_status(node: str, vmid: int, api_key: str = Depends(verify_api_key)):
+    """Get status of a specific VM"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        status = proxmox.get_vm_status(node, vmid)
+        if not status:
+            raise HTTPException(status_code=404, detail=f"VM {vmid} not found on {node}")
+
+        return {
+            "success": True,
+            "data": status
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get VM status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proxmox/vms/{node}/{vmid}/start", response_model=dict)
+async def proxmox_start_vm(node: str, vmid: int, api_key: str = Depends(verify_api_key)):
+    """Start a VM"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        if proxmox.start_vm(node, vmid):
+            return {
+                "success": True,
+                "message": f"Started VM {vmid}",
+                "vmid": vmid,
+                "node": node
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to start VM {vmid}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start VM: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proxmox/vms/{node}/{vmid}/stop", response_model=dict)
+async def proxmox_stop_vm(
+    node: str,
+    vmid: int,
+    force: bool = Query(False),
+    api_key: str = Depends(verify_api_key)
+):
+    """Stop a VM"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        if proxmox.stop_vm(node, vmid, force=force):
+            return {
+                "success": True,
+                "message": f"Stopped VM {vmid}",
+                "vmid": vmid,
+                "node": node
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to stop VM {vmid}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stop VM: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proxmox/vms/{node}/{vmid}/reboot", response_model=dict)
+async def proxmox_reboot_vm(node: str, vmid: int, api_key: str = Depends(verify_api_key)):
+    """Reboot a VM"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        if proxmox.reboot_vm(node, vmid):
+            return {
+                "success": True,
+                "message": f"Rebooted VM {vmid}",
+                "vmid": vmid,
+                "node": node
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to reboot VM {vmid}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reboot VM: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/proxmox/containers", response_model=dict)
+async def proxmox_list_containers(
+    node: Optional[str] = Query(None, description="Optional node filter"),
+    api_key: str = Depends(verify_api_key)
+):
+    """List all LXC containers"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        containers = proxmox.list_containers(node=node)
+        return {
+            "success": True,
+            "count": len(containers),
+            "containers": containers
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list containers: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proxmox/containers/{node}/{vmid}/start", response_model=dict)
+async def proxmox_start_container(node: str, vmid: int, api_key: str = Depends(verify_api_key)):
+    """Start a container"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        if proxmox.start_container(node, vmid):
+            return {
+                "success": True,
+                "message": f"Started container {vmid}",
+                "vmid": vmid,
+                "node": node
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to start container {vmid}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start container: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proxmox/containers/{node}/{vmid}/stop", response_model=dict)
+async def proxmox_stop_container(
+    node: str,
+    vmid: int,
+    force: bool = Query(False),
+    api_key: str = Depends(verify_api_key)
+):
+    """Stop a container"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        if proxmox.stop_container(node, vmid, force=force):
+            return {
+                "success": True,
+                "message": f"Stopped container {vmid}",
+                "vmid": vmid,
+                "node": node
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to stop container {vmid}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to stop container: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/proxmox/snapshots/{node}/{vmid}", response_model=dict)
+async def proxmox_list_snapshots(node: str, vmid: int, api_key: str = Depends(verify_api_key)):
+    """List snapshots for a VM"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        snapshots = proxmox.list_snapshots(node, vmid)
+        return {
+            "success": True,
+            "vmid": vmid,
+            "node": node,
+            "count": len(snapshots),
+            "snapshots": snapshots
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list snapshots: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proxmox/snapshots/{node}/{vmid}/create", response_model=dict)
+async def proxmox_create_snapshot(
+    node: str,
+    vmid: int,
+    name: str = Query(..., description="Snapshot name"),
+    description: str = Query("", description="Optional description"),
+    api_key: str = Depends(verify_api_key)
+):
+    """Create a snapshot"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        if proxmox.create_snapshot(node, vmid, name, description):
+            return {
+                "success": True,
+                "message": f"Created snapshot {name}",
+                "vmid": vmid,
+                "node": node,
+                "snapshot_name": name
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to create snapshot {name}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create snapshot: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proxmox/snapshots/{node}/{vmid}/restore", response_model=dict)
+async def proxmox_restore_snapshot(
+    node: str,
+    vmid: int,
+    name: str = Query(..., description="Snapshot name"),
+    force: bool = Query(False, description="Force restore"),
+    api_key: str = Depends(verify_api_key)
+):
+    """Restore a snapshot"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        if proxmox.restore_snapshot(node, vmid, name, force=force):
+            return {
+                "success": True,
+                "message": f"Restored snapshot {name}",
+                "vmid": vmid,
+                "node": node,
+                "snapshot_name": name
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to restore snapshot {name}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to restore snapshot: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/proxmox/resources", response_model=dict)
+async def proxmox_cluster_resources(api_key: str = Depends(verify_api_key)):
+    """Get cluster-wide resource summary"""
+    try:
+        proxmox = get_proxmox_client()
+
+        if not proxmox.is_connected():
+            raise HTTPException(status_code=503, detail="Not connected to Proxmox")
+
+        resources = proxmox.get_cluster_resources()
+        return {
+            "success": True,
+            "resources": resources
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get resources: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
@@ -4193,6 +4623,284 @@ Please review Grok's response, add your perspective, provide additional depth, a
         websocket_manager.disconnect(being_id)
 
 
+# ============================================================================
+# Terminal WebSocket - SSH Terminal Sessions
+# ============================================================================
+
+@app.websocket("/ws/terminal/{session_id}")
+async def websocket_terminal(websocket: WebSocket, session_id: str, api_key: str = Query(..., description="API key for authentication")):
+    """
+    WebSocket endpoint for SSH terminal sessions.
+    Connect with: ws://localhost:9003/ws/terminal/{session_id}?api_key=...
+    """
+    # Authenticate
+    try:
+        auth_manager = get_auth_manager()
+        being_id = auth_manager.verify_key(api_key)
+        if not being_id:
+            await websocket.close(code=4001, reason="Invalid API key")
+            return
+    except Exception as e:
+        logger.error(f"Terminal auth error: {e}")
+        await websocket.close(code=4001, reason="Authentication failed")
+        return
+
+    # Get terminal manager
+    try:
+        terminal_mgr = await get_terminal_manager_instance()
+    except Exception as e:
+        logger.error(f"Terminal manager error: {e}")
+        await websocket.close(code=4002, reason="Terminal service unavailable")
+        return
+
+    # Get session
+    session = await terminal_mgr.get_session(session_id)
+    if not session:
+        await websocket.close(code=4003, reason="Session not found")
+        return
+
+    # Attach as viewer
+    if not await terminal_mgr.attach_viewer(session_id, being_id):
+        await websocket.close(code=4003, reason="Cannot join session")
+        return
+
+    await websocket.accept()
+
+    # Send initial session info
+    await websocket.send_json({
+        "type": "session_info",
+        "session_id": session.session_id,
+        "host": session.host,
+        "username": session.username,
+        "status": session.status,
+        "is_controller": session.controller == being_id,
+        "viewers": list(session.viewers)
+    })
+
+    try:
+        while True:
+            # Receive message from client with timeout
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=30)
+            except asyncio.TimeoutError:
+                # Send ping to keep connection alive
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    break
+                continue
+
+            message_type = data.get("type")
+
+            if message_type == "input":
+                # Handle terminal input (only if controller)
+                if session.controller == being_id:
+                    input_data = data.get("data", "")
+                    if session.ssh_client and session.ssh_client.process:
+                        try:
+                            session.ssh_client.process.stdin.write(input_data.encode())
+                            await session.ssh_client.process.stdin.drain()
+                        except Exception as e:
+                            logger.error(f"Terminal input error: {e}")
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Input error: {str(e)}"
+                            })
+
+            elif message_type == "resize":
+                # Handle terminal resize
+                rows = data.get("rows", 24)
+                cols = data.get("cols", 80)
+                if session.ssh_client and session.ssh_client.process:
+                    try:
+                        session.ssh_client.process.set_window_size(cols, rows)
+                    except Exception as e:
+                        logger.error(f"Terminal resize error: {e}")
+
+            elif message_type == "request_control":
+                # Request input control
+                if await terminal_mgr.set_controller(session_id, being_id):
+                    await websocket.send_json({"type": "control_granted"})
+                    # Notify all viewers of controller change
+                    for viewer in session.viewers:
+                        if viewer != being_id:
+                            await websocket_manager.send_personal_message({
+                                "type": "controller_changed",
+                                "controller": being_id
+                            }, viewer)
+                else:
+                    await websocket.send_json({"type": "control_denied"})
+
+            # Update session activity
+            session.last_activity = datetime.now()
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        # Detach viewer
+        await terminal_mgr.detach_viewer(session_id, being_id)
+
+
+# ============================================================================
+# Terminal REST API - Session Management
+# ============================================================================
+
+@app.post("/terminal/create", response_model=dict)
+async def create_terminal_session(
+    host: str = Form(...),
+    port: int = Form(22),
+    username: str = Form(...),
+    password: str = Form(None),
+    key_path: str = Form(None),
+    use_agent: bool = Form(False),
+    api_key: str = Depends(verify_api_key)
+):
+    """Create a new SSH terminal session"""
+    try:
+        auth_manager = get_auth_manager()
+        being_id = auth_manager.verify_key(api_key)
+
+        terminal_mgr = await get_terminal_manager_instance()
+        session_id = await terminal_mgr.create_session(
+            being_id=being_id,
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            key_path=key_path,
+            use_agent=use_agent
+        )
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "message": "Terminal session created"
+        }
+    except Exception as e:
+        logger.error(f"Create terminal session error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/terminal/sessions", response_model=dict)
+async def list_terminal_sessions(api_key: str = Depends(verify_api_key)):
+    """List terminal sessions for the authenticated being"""
+    try:
+        auth_manager = get_auth_manager()
+        being_id = auth_manager.verify_key(api_key)
+
+        terminal_mgr = await get_terminal_manager_instance()
+        sessions = await terminal_mgr.list_sessions(being_id)
+
+        return {
+            "success": True,
+            "count": len(sessions),
+            "sessions": [
+                {
+                    "session_id": s.session_id,
+                    "host": s.host,
+                    "username": s.username,
+                    "status": s.status,
+                    "created_at": s.created_at.isoformat(),
+                    "is_controller": s.controller == being_id,
+                    "viewers": list(s.viewers)
+                }
+                for s in sessions
+            ]
+        }
+    except Exception as e:
+        logger.error(f"List terminal sessions error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/terminal/{session_id}", response_model=dict)
+async def close_terminal_session(session_id: str, api_key: str = Depends(verify_api_key)):
+    """Close a terminal session"""
+    try:
+        auth_manager = get_auth_manager()
+        being_id = auth_manager.verify_key(api_key)
+
+        terminal_mgr = await get_terminal_manager_instance()
+        session = await terminal_mgr.get_session(session_id)
+
+        if not session or being_id not in session.viewers:
+            raise HTTPException(status_code=404, detail="Session not found or access denied")
+
+        await terminal_mgr.close_session(session_id)
+
+        return {
+            "success": True,
+            "message": "Terminal session closed"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Close terminal session error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# SSH Credentials API
+# ============================================================================
+
+@app.get("/api/ssh/credentials", response_model=dict)
+async def get_ssh_credentials(api_key: str = Depends(verify_api_key)):
+    """Get SSH credentials configuration"""
+    try:
+        auth_manager = get_auth_manager()
+        being_id = auth_manager.verify_key(api_key)
+
+        config_path = Path("auth/ssh_config.yaml")
+        if not config_path.exists():
+            return {"credentials": {}}
+
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f) or {}
+
+        return config.get("credentials", {})
+    except Exception as e:
+        logger.error(f"Get SSH credentials error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ssh/credentials", response_model=dict)
+async def add_ssh_credential(
+    name: str = Form(...),
+    host: str = Form(...),
+    port: int = Form(22),
+    username: str = Form(...),
+    auth_method: str = Form("password"),
+    key_path: str = Form(...),
+    api_key: str = Depends(verify_api_key)
+):
+    """Add or update SSH credential"""
+    try:
+        auth_manager = get_auth_manager()
+        being_id = auth_manager.verify_key(api_key)
+
+        config_path = Path("auth/ssh_config.yaml")
+        config = {"credentials": {}}
+
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f) or {"credentials": {}}
+
+        config["credentials"][name] = {
+            "host": host,
+            "port": port,
+            "username": username,
+            "auth_method": auth_method,
+            "key_path": key_path
+        }
+
+        with open(config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+
+        return {
+            "success": True,
+            "message": f"Credential '{name}' saved"
+        }
+    except Exception as e:
+        logger.error(f"Add SSH credential error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/webcli", response_class=HTMLResponse)
 async def web_cli_interface():
     """Love-Unlimited Web CLI - Real-time chat interface"""
@@ -4476,6 +5184,11 @@ async def web_cli_interface():
                 margin-top: 0.5rem;
             }
         </style>
+
+        <!-- xterm.js for terminal emulation -->
+        <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
     </head>
     <body>
         <div class="header">
@@ -4514,6 +5227,7 @@ async def web_cli_interface():
                 <div class="action-buttons">
                     <button id="memoryBtn">📚 Memories</button>
                     <button id="mediaBtn">📎 Media</button>
+                    <button id="terminalBtn">🖥️ Terminal</button>
                     <button id="tagTeamBtn">🤝 Tag Team</button>
                     <button id="clearBtn">🗑️ Clear Chat</button>
                 </div>
@@ -4544,6 +5258,25 @@ async def web_cli_interface():
                 <input type="text" id="memorySearch" placeholder="Search memories...">
             </div>
             <div class="memory-results" id="memoryResults"></div>
+        </div>
+
+        <div class="memory-panel" id="terminalPanel">
+            <div class="memory-header">
+                <h2>🖥️ Terminal Sessions</h2>
+                <button id="closeTerminalBtn">✕</button>
+            </div>
+
+            <div style="padding: 1rem;">
+                <div style="margin-bottom: 1rem;">
+                    <button onclick="createNewTerminal()" style="width: 100%; padding: 0.75rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 1rem;">
+                        ➕ Create New Session
+                    </button>
+                </div>
+
+                <div id="terminalSessionsList">
+                    <div style="text-align: center; opacity: 0.6; padding: 2rem;">Loading terminal sessions...</div>
+                </div>
+            </div>
         </div>
 
         <div class="memory-panel" id="settingsPanel">
@@ -5328,6 +6061,280 @@ async def web_cli_interface():
                 });
             }
 
+            // Terminal panel functionality
+            async function loadTerminalSessions() {
+                try {
+                    const apiKey = getApiKey();
+                    if (!apiKey) return;
+
+                    const response = await fetch('/terminal/sessions', {
+                        headers: {
+                            'X-API-Key': apiKey
+                        }
+                    });
+
+                    if (!response.ok) {
+                        addSystemMessage('❌ Failed to load terminal sessions');
+                        return;
+                    }
+
+                    const data = await response.json();
+                    const sessionsList = document.getElementById('terminalSessionsList');
+                    sessionsList.innerHTML = '';
+
+                    if (data.sessions.length === 0) {
+                        sessionsList.innerHTML = '<div style="text-align: center; opacity: 0.6; padding: 2rem;">No active terminal sessions</div>';
+                        return;
+                    }
+
+                    data.sessions.forEach(session => {
+                        const item = document.createElement('div');
+                        item.style.cssText = 'padding: 1rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem;';
+                        item.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <strong>${session.username}@${session.host}</strong>
+                                <span style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 4px; background: ${session.status === 'connected' ? 'var(--success)' : session.status === 'connecting' ? 'var(--warning)' : 'var(--error)'};">${session.status}</span>
+                            </div>
+                            <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.5rem;">
+                                Created: ${new Date(session.created_at).toLocaleString()}
+                            </div>
+                            <div style="font-size: 0.75rem; opacity: 0.7; margin-bottom: 1rem;">
+                                Viewers: ${session.viewers.join(', ')}
+                                ${session.is_controller ? ' (You control)' : ''}
+                            </div>
+                            <button onclick="joinTerminalSession('${session.session_id}')" style="width: 100%; padding: 0.5rem; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                ${session.is_controller ? 'Open Terminal' : 'View Terminal'}
+                            </button>
+                        `;
+                        sessionsList.appendChild(item);
+                    });
+                } catch (error) {
+                    console.error('Failed to load terminal sessions:', error);
+                    addSystemMessage('❌ Failed to load terminal sessions');
+                }
+            }
+
+            let currentTerminalSession = null;
+            let terminalWebSocket = null;
+            let xtermTerminal = null;
+            let fitAddon = null;
+
+            window.joinTerminalSession = async function(sessionId) {
+                try {
+                    // Close existing terminal if any
+                    if (currentTerminalSession) {
+                        closeTerminal();
+                    }
+
+                    currentTerminalSession = sessionId;
+
+                    // Create terminal overlay
+                    const overlay = document.createElement('div');
+                    overlay.id = 'terminalOverlay';
+                    overlay.style.cssText = `
+                        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                        background: rgba(0,0,0,0.9); z-index: 10000;
+                        display: flex; flex-direction: column; align-items: center; justify-content: center;
+                        padding: 2rem; box-sizing: border-box;
+                    `;
+
+                    const terminalContainer = document.createElement('div');
+                    terminalContainer.style.cssText = `
+                        width: 100%; height: 100%; max-width: 1200px; max-height: 800px;
+                        background: #1a1a1a; border-radius: 8px; overflow: hidden;
+                        display: flex; flex-direction: column;
+                    `;
+
+                    const header = document.createElement('div');
+                    header.style.cssText = `
+                        padding: 1rem; background: #2a2a2a; border-bottom: 1px solid #444;
+                        display: flex; justify-content: space-between; align-items: center;
+                    `;
+                    header.innerHTML = `
+                        <h3 style="margin: 0; color: #fff;">Terminal Session: ${sessionId}</h3>
+                        <button onclick="closeTerminal()" style="background: #ff4757; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Close</button>
+                    `;
+
+                    const terminalElement = document.createElement('div');
+                    terminalElement.id = 'terminal';
+                    terminalElement.style.cssText = `
+                        flex: 1; padding: 1rem; font-family: 'Courier New', monospace;
+                        background: #000; color: #fff; overflow: hidden;
+                    `;
+
+                    terminalContainer.appendChild(header);
+                    terminalContainer.appendChild(terminalElement);
+                    overlay.appendChild(terminalContainer);
+                    document.body.appendChild(overlay);
+
+                    // Initialize xterm.js
+                    xtermTerminal = new Terminal({
+                        cursorBlink: true,
+                        cursorStyle: 'block',
+                        fontSize: 14,
+                        fontFamily: '"Courier New", monospace',
+                        theme: {
+                            background: '#000000',
+                            foreground: '#ffffff',
+                            cursor: '#ffffff',
+                            cursorAccent: '#000000',
+                            selection: 'rgba(255,255,255,0.3)'
+                        }
+                    });
+
+                    fitAddon = new FitAddon.FitAddon();
+                    xtermTerminal.loadAddon(fitAddon);
+                    xtermTerminal.open(terminalElement);
+                    fitAddon.fit();
+
+                    // Connect WebSocket
+                    await connectTerminalWebSocket(sessionId);
+
+                    addSystemMessage(`✅ Terminal session ${sessionId} opened`);
+                } catch (error) {
+                    console.error('Failed to join terminal session:', error);
+                    addSystemMessage(`❌ Failed to join terminal session: ${error.message}`);
+                }
+            };
+
+            async function connectTerminalWebSocket(sessionId) {
+                const apiKey = getApiKey();
+                if (!apiKey) {
+                    addSystemMessage('❌ API key required for terminal');
+                    return;
+                }
+
+                const wsUrl = `ws://localhost:9004/ws/terminal/${sessionId}?api_key=${apiKey}`;
+                terminalWebSocket = new WebSocket(wsUrl);
+
+                terminalWebSocket.onopen = () => {
+                    console.log('Terminal WebSocket connected');
+                };
+
+                terminalWebSocket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'session_info') {
+                        // Update terminal title or status
+                        console.log('Session info:', data);
+                    } else if (data.type === 'terminal_output') {
+                        xtermTerminal.write(data.data);
+                    } else if (data.type === 'terminal_closed') {
+                        addSystemMessage('🔌 Terminal session closed');
+                        closeTerminal();
+                    } else if (data.type === 'error') {
+                        addSystemMessage(`❌ Terminal error: ${data.message}`);
+                    }
+                };
+
+                terminalWebSocket.onclose = () => {
+                    console.log('Terminal WebSocket closed');
+                    if (currentTerminalSession) {
+                        addSystemMessage('🔌 Terminal connection closed');
+                        closeTerminal();
+                    }
+                };
+
+                terminalWebSocket.onerror = (error) => {
+                    console.error('Terminal WebSocket error:', error);
+                    addSystemMessage('❌ Terminal connection error');
+                };
+
+                // Handle terminal input
+                xtermTerminal.onData((data) => {
+                    if (terminalWebSocket && terminalWebSocket.readyState === WebSocket.OPEN) {
+                        terminalWebSocket.send(JSON.stringify({
+                            type: 'input',
+                            data: data
+                        }));
+                    }
+                });
+
+                // Handle terminal resize
+                window.addEventListener('resize', () => {
+                    if (fitAddon) {
+                        fitAddon.fit();
+                        const dims = xtermTerminal.rows + ',' + xtermTerminal.cols;
+                        if (terminalWebSocket && terminalWebSocket.readyState === WebSocket.OPEN) {
+                            terminalWebSocket.send(JSON.stringify({
+                                type: 'resize',
+                                rows: xtermTerminal.rows,
+                                cols: xtermTerminal.cols
+                            }));
+                        }
+                    }
+                });
+            }
+
+            window.closeTerminal = function() {
+                if (terminalWebSocket) {
+                    terminalWebSocket.close();
+                    terminalWebSocket = null;
+                }
+
+                if (xtermTerminal) {
+                    xtermTerminal.dispose();
+                    xtermTerminal = null;
+                }
+
+                const overlay = document.getElementById('terminalOverlay');
+                if (overlay) {
+                    overlay.remove();
+                }
+
+                currentTerminalSession = null;
+                fitAddon = null;
+            };
+
+            window.createNewTerminal = async function() {
+                // Simple form for creating new terminal session
+                const host = prompt('Host (e.g., localhost, 192.168.2.10):', 'localhost');
+                if (!host) return;
+
+                const username = prompt('Username:', 'kntrnjb');
+                if (!username) return;
+
+                const port = prompt('Port (default 22):', '22') || '22';
+                const useAgent = confirm('Use SSH agent for authentication?');
+
+                try {
+                    const apiKey = getApiKey();
+                    if (!apiKey) {
+                        addSystemMessage('❌ API key required');
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('host', host);
+                    formData.append('username', username);
+                    formData.append('port', port);
+                    formData.append('use_agent', useAgent.toString());
+
+                    const response = await fetch('/terminal/create', {
+                        method: 'POST',
+                        headers: {
+                            'X-API-Key': apiKey
+                        },
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.text();
+                        addSystemMessage(`❌ Failed to create terminal: ${error}`);
+                        return;
+                    }
+
+                    const data = await response.json();
+                    addSystemMessage(`✅ Terminal session created: ${data.session_id}`);
+
+                    // Reload sessions
+                    loadTerminalSessions();
+                } catch (error) {
+                    console.error('Failed to create terminal:', error);
+                    addSystemMessage('❌ Failed to create terminal session');
+                }
+            };
+
             // Event listeners
             elements.sendBtn.addEventListener('click', sendMessage);
             elements.messageInput.addEventListener('keypress', (e) => {
@@ -5366,6 +6373,20 @@ async def web_cli_interface():
 
             elements.closeMediaBtn.addEventListener('click', () => {
                 elements.mediaPanel.classList.remove('open');
+            });
+
+            // Terminal panel functionality
+            const terminalPanel = document.getElementById('terminalPanel');
+            const closeTerminalBtn = document.getElementById('closeTerminalBtn');
+            const terminalBtn = document.getElementById('terminalBtn');
+
+            terminalBtn.addEventListener('click', () => {
+                terminalPanel.classList.add('open');
+                loadTerminalSessions();
+            });
+
+            closeTerminalBtn.addEventListener('click', () => {
+                terminalPanel.classList.remove('open');
             });
 
             elements.tagTeamBtn.addEventListener('click', () => {
