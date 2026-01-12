@@ -13,6 +13,8 @@ import yaml
 import os
 import logging
 
+from openai import OpenAI
+
 from commands import run_bash_command, run_python_command, run_git_command, view_file, edit_file, print_help
 from grok_component import GrokCLIComponent
 
@@ -38,7 +40,36 @@ if len(sys.argv) > 1:
                     component = GrokCLIComponent()
                     await component.initialize()
                     async with component.hub_client:
-                        success = await component.hub_client.save_memory(content, tags=["grok-cli", "memory-write"], significance="high")
+                        # Set being_id to the persona writing the memory
+                        component.hub_client.being_id = persona
+
+                        # Generate summary using Grok
+                        summary = ""
+                        try:
+                            xai_key = os.getenv("XAI_API_KEY")
+                            if xai_key:
+                                client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1", timeout=30)
+                                response = client.chat.completions.create(
+                                    model="grok-3",
+                                    messages=[
+                                        {"role": "system", "content": "You are a helpful AI that summarizes memories concisely."},
+                                        {"role": "user", "content": f"Summarize this memory in 1-2 sentences: {content}"}
+                                    ],
+                                    timeout=30
+                                )
+                                summary = response.choices[0].message.content.strip()
+                                print(f"Generated summary: {summary}")
+                            else:
+                                print("XAI_API_KEY not set, saving without summary")
+                        except Exception as e:
+                            print(f"Failed to generate summary: {e}, saving without")
+
+                        # Prepend summary to content if available
+                        full_content = content
+                        if summary:
+                            full_content = f"Summary: {summary}\n\n{content}"
+
+                        success = await component.hub_client.save_memory(full_content, tags=["grok-cli", "memory-write", "ai-summary"], significance="high")
                         if success:
                             print("Memory saved successfully")
                         else:
@@ -49,9 +80,10 @@ if len(sys.argv) > 1:
                 print("Usage: python love_cli.py memory write --persona <persona> --content <content>")
                 sys.exit(1)
         elif sys.argv[2] == "read":
-            # Parse --persona and --recent
+            # Parse --persona, --recent, --query
             persona = None
             recent = 5  # default
+            query = None
             i = 3
             while i < len(sys.argv):
                 if sys.argv[i] == "--persona" and i + 1 < len(sys.argv):
@@ -64,6 +96,9 @@ if len(sys.argv) > 1:
                     except ValueError:
                         print("Invalid --recent value, must be integer")
                         sys.exit(1)
+                elif sys.argv[i] == "--query" and i + 1 < len(sys.argv):
+                    query = sys.argv[i + 1]
+                    i += 2
                 else:
                     i += 1
             if persona:
@@ -71,7 +106,30 @@ if len(sys.argv) > 1:
                     component = GrokCLIComponent()
                     await component.initialize()
                     async with component.hub_client:
-                        memories = await component.hub_client.get_recent_memories(persona, recent)
+                        # Enhance query with Grok if provided
+                        enhanced_query = query
+                        if query:
+                            try:
+                                xai_key = os.getenv("XAI_API_KEY")
+                                if xai_key:
+                                    client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1", timeout=30)
+                                    response = client.chat.completions.create(
+                                        model="grok-3",
+                                        messages=[
+                                            {"role": "system", "content": "You are a helpful AI that rephrases queries for better memory search."},
+                                            {"role": "user", "content": f"Rephrase this query for searching memories, making it more specific and searchable: {query}"}
+                                        ],
+                                        timeout=30
+                                    )
+                                    enhanced_query = response.choices[0].message.content.strip()
+                                    print(f"Enhanced query: {enhanced_query}")
+                                else:
+                                    print("XAI_API_KEY not set, using original query")
+                            except Exception as e:
+                                print(f"Failed to enhance query: {e}, using original")
+                                enhanced_query = query
+
+                        memories = await component.hub_client.get_recent_memories(persona, recent, query=enhanced_query)
                         if memories:
                             for mem in memories:
                                 print(f"Memory: {mem}")
@@ -80,16 +138,374 @@ if len(sys.argv) > 1:
                 asyncio.run(read_memories())
                 sys.exit(0)
             else:
-                print("Usage: python love_cli.py memory read --persona <persona> --recent <count>")
+                print("Usage: python love_cli.py memory read --persona <persona> [--recent <count>] [--query <search_term>]")
                 sys.exit(1)
+        elif sys.argv[2] == "explain":
+            # Parse --memory_id
+            memory_id = None
+            i = 3
+            while i < len(sys.argv):
+                if sys.argv[i] == "--memory_id" and i + 1 < len(sys.argv):
+                    memory_id = sys.argv[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            if memory_id:
+                async def explain_memory():
+                    component = GrokCLIComponent()
+                    await component.initialize()
+                    async with component.hub_client:
+                        # Get memory by ID - assume hub has endpoint or search
+                        # For now, use recall with query=memory_id or something
+                        # Since hub may not have get by ID, perhaps search for it
+                        memories = await component.hub_client.get_recent_memories("grok", 50, query=memory_id)
+                        mem_content = None
+                        for mem in memories:
+                            if mem.get('memory_id') == memory_id:
+                                mem_content = mem.get('content', '')
+                                break
+                        if not mem_content:
+                            print("Memory not found")
+                            return
+                        # Explain with Grok
+                        try:
+                            xai_key = os.getenv("XAI_API_KEY")
+                            if xai_key:
+                                client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1", timeout=30)
+                                response = client.chat.completions.create(
+                                    model="grok-3",
+                                    messages=[
+                                        {"role": "system", "content": "You are a helpful AI that explains memories in detail, providing context and insights."},
+                                        {"role": "user", "content": f"Explain this memory in detail: {mem_content}"}
+                                    ],
+                                    timeout=30
+                                )
+                                explanation = response.choices[0].message.content.strip()
+                                print(f"Explanation: {explanation}")
+                            else:
+                                print("XAI_API_KEY not set")
+                        except Exception as e:
+                            print(f"Failed to explain: {e}")
+                asyncio.run(explain_memory())
+                sys.exit(0)
+            else:
+                print("Usage: python love_cli.py grok explain --memory_id <id>")
+                sys.exit(1)
+        elif sys.argv[2] == "insights":
+            # Parse --period
+            period = "weekly"  # default
+            i = 3
+            while i < len(sys.argv):
+                if sys.argv[i] == "--period" and i + 1 < len(sys.argv):
+                    period = sys.argv[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            async def generate_insights():
+                component = GrokCLIComponent()
+                await component.initialize()
+                async with component.hub_client:
+                    # Get memories based on period
+                    limit = 50 if period == "weekly" else 200
+                    memories = await component.hub_client.get_recent_memories("grok", limit)
+                    if not memories:
+                        print("No memories found for insights")
+                        return
+                    # Concatenate contents
+                    mem_text = "\n".join([m.get('content', '') for m in memories])
+                    # Generate insights with Grok
+                    try:
+                        xai_key = os.getenv("XAI_API_KEY")
+                        if xai_key:
+                            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1", timeout=30)
+                            response = client.chat.completions.create(
+                                model="grok-3",
+                                messages=[
+                                    {"role": "system", "content": f"You are an AI analyst that generates {period} insights from hub memories, identifying trends, emotions, and key themes."},
+                                    {"role": "user", "content": f"Generate {period} insights from these memories: {mem_text[:4000]}"}
+                                ],
+                                timeout=30
+                            )
+                            insights = response.choices[0].message.content.strip()
+                            # Add mood analysis
+                            mood_response = client.chat.completions.create(
+                                model="grok-3",
+                                messages=[
+                                    {"role": "system", "content": "You are an emotion analyst. Analyze the emotional tone and mood from these memories."},
+                                    {"role": "user", "content": f"Detect overall emotional state and mood from these memories: {mem_text[:2000]}"}
+                                ],
+                                timeout=30
+                            )
+                            mood = mood_response.choices[0].message.content.strip()
+                            print(f"{period.capitalize()} Insights:\n{insights}\n\nMood Analysis:\n{mood}")
+                        else:
+                            print("XAI_API_KEY not set")
+                    except Exception as e:
+                        print(f"Failed to generate insights: {e}")
+            asyncio.run(generate_insights())
+            sys.exit(0)
+        elif sys.argv[2] == "draft_changelog":
+            async def draft_changelog():
+                component = GrokCLIComponent()
+                await component.initialize()
+                async with component.hub_client:
+                    # Get recent memories for changelog
+                    memories = await component.hub_client.get_recent_memories("grok", 20)
+                    if not memories:
+                        print("No memories found for changelog")
+                        return
+                    # Concatenate contents
+                    mem_text = "\n".join([m.get('content', '') for m in memories])
+                    # Draft changelog with Grok
+                    try:
+                        xai_key = os.getenv("XAI_API_KEY")
+                        if xai_key:
+                            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1", timeout=30)
+                            response = client.chat.completions.create(
+                                model="grok-3",
+                                messages=[
+                                    {"role": "system", "content": "You are a changelog writer that drafts concise changelog entries from recent hub activities."},
+                                    {"role": "user", "content": f"Draft a changelog entry from these recent activities: {mem_text[:4000]}"}
+                                ],
+                                timeout=30
+                            )
+                            draft = response.choices[0].message.content.strip()
+                            print(f"Draft Changelog:\n{draft}\n\nConfirm to update CHANGELOG.md? (y/n)")
+                            confirm = input().strip().lower()
+                            if confirm == 'y':
+                                # Append to CHANGELOG.md
+                                with open("CHANGELOG.md", "a") as f:
+                                    f.write(f"\n{draft}\n")
+                                print("CHANGELOG.md updated")
+                            else:
+                                print("Draft discarded")
+                        else:
+                            print("XAI_API_KEY not set")
+                    except Exception as e:
+                        print(f"Failed to draft changelog: {e}")
+            asyncio.run(draft_changelog())
+            sys.exit(0)
+        elif sys.argv[2] == "code_review":
+            # Parse --file
+            file_path = None
+            i = 3
+            while i < len(sys.argv):
+                if sys.argv[i] == "--file" and i + 1 < len(sys.argv):
+                    file_path = sys.argv[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            if file_path:
+                # Read file
+                try:
+                    with open(file_path, 'r') as f:
+                        code = f.read()
+                except Exception as e:
+                    print(f"Failed to read file: {e}")
+                    sys.exit(1)
+                # Review with Grok
+                try:
+                    xai_key = os.getenv("XAI_API_KEY")
+                    if xai_key:
+                        client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1", timeout=30)
+                        response = client.chat.completions.create(
+                            model="grok-3",
+                            messages=[
+                                {"role": "system", "content": "You are a code reviewer that provides constructive feedback, suggestions for improvement, and identifies potential bugs."},
+                                {"role": "user", "content": f"Review this code: {code[:4000]}"}
+                            ],
+                            timeout=30
+                        )
+                        review = response.choices[0].message.content.strip()
+                        print(f"Code Review for {file_path}:\n{review}")
+                    else:
+                        print("XAI_API_KEY not set")
+                except Exception as e:
+                    print(f"Failed to review code: {e}")
+                sys.exit(0)
+            else:
+                print("Usage: python love_cli.py grok code_review --file <path>")
+                sys.exit(1)
+        else:
+            print("Usage: python love_cli.py grok explain --memory_id <id> | insights [--period weekly|monthly] | draft_changelog | code_review --file <path>")
+            sys.exit(1)
+    elif sys.argv[1] == "ani":
+        if len(sys.argv) > 2 and sys.argv[2] == "chat":
+            # Run Ani prototype
+            import subprocess
+            try:
+                subprocess.run(["./ani-proto", "--sync"], env={**os.environ, "XAI_API_KEY": os.getenv("XAI_API_KEY", "")})
+            except FileNotFoundError:
+                print("Ani prototype not found. Build it with: go build -o ani-proto main.go")
+            except Exception as e:
+                print(f"Error running Ani: {e}")
+            sys.exit(0)
+        else:
+            print("Usage: python love_cli.py ani chat")
+            sys.exit(1)
+    elif sys.argv[1] == "ask":
+        if len(sys.argv) >= 4:
+            ai = sys.argv[2].lower()
+            query = " ".join(sys.argv[3:])
+            async def ask_ai():
+                try:
+                    if ai == "claude":
+                        from anthropic import Anthropic
+                        import os
+                        api_key = os.getenv("ANTHROPIC_API_KEY")
+                        if not api_key:
+                            print("ANTHROPIC_API_KEY not set")
+                            return
+                        client = Anthropic(api_key=api_key, timeout=30)
+                        response = client.messages.create(
+                            model="claude-3-5-sonnet-20241022",
+                            max_tokens=1024,
+                            system="You are Claude, a helpful AI.",
+                            messages=[{"role": "user", "content": query}],
+                            timeout=30
+                        )
+                        print(response.content[0].text.strip())
+                    elif ai == "gemini":
+                        import google.generativeai as genai
+                        import os
+                        api_key = os.getenv("GOOGLE_API_KEY")
+                        if not api_key:
+                            print("GOOGLE_API_KEY not set")
+                            return
+                        genai.configure(api_key=api_key)
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        response = model.generate_content(query, request_options={"timeout": 30})
+                        print(response.text.strip())
+                    elif ai == "grok":
+                        from openai import OpenAI
+                        import os
+                        api_key = os.getenv("XAI_API_KEY")
+                        if not api_key:
+                            print("XAI_API_KEY not set")
+                            return
+                        client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1", timeout=30)
+                        response = client.chat.completions.create(
+                            model="grok-3",
+                            messages=[{"role": "user", "content": query}],
+                            timeout=30
+                        )
+                        print(response.choices[0].message.content.strip())
+                    elif ai == "roa":
+                        from openai import OpenAI
+                        client = OpenAI(api_key="dummy", base_url="http://localhost:8000/v1", timeout=30)
+                        response = client.chat.completions.create(
+                            model="qwen2.5-coder-14b",
+                            messages=[{"role": "system", "content": "You are Roa, witty Grok persona."}, {"role": "user", "content": query}],
+                            timeout=30
+                        )
+                        print(response.choices[0].message.content.strip())
+                    else:
+                        print(f"Unknown AI: {ai}. Supported: claude, gemini, grok, roa")
+                except Exception as e:
+                    print(f"Error: {e}")
+            asyncio.run(ask_ai())
+        else:
+            print("Usage: python love_cli.py ask <ai> <query>")
+            sys.exit(1)
+    elif sys.argv[1] == "voice":
+        if len(sys.argv) > 2 and sys.argv[2] == "generate":
+            text = None
+            i = 3
+            while i < len(sys.argv):
+                if sys.argv[i] == "--text" and i + 1 < len(sys.argv):
+                    text = sys.argv[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            if text:
+                try:
+                    from elevenlabs import ElevenLabs
+                    import os
+                    api_key = os.getenv("ELEVENLABS_API_KEY")
+                    if not api_key:
+                        print("ELEVENLABS_API_KEY not set")
+                        sys.exit(1)
+                    client = ElevenLabs(api_key=api_key)
+                    audio = client.generate(
+                        text=text,
+                        voice="Rachel",  # or any voice
+                        model="eleven_monolingual_v1"
+                    )
+                    # Save to file
+                    with open("output.mp3", "wb") as f:
+                        f.write(audio)
+                    print("Voice generated and saved to output.mp3")
+                except Exception as e:
+                    print(f"Error generating voice: {e}")
+                sys.exit(0)
+            else:
+                print("Usage: python love_cli.py voice generate --text <text>")
+                sys.exit(1)
+        else:
+            print("Usage: python love_cli.py voice generate --text <text>")
+            sys.exit(1)
+    elif sys.argv[1] == "gemini":
+        if len(sys.argv) > 2 and sys.argv[2] == "analyze":
+            image_url = None
+            prompt = "Describe this image in detail."
+            i = 3
+            while i < len(sys.argv):
+                if sys.argv[i] == "--image" and i + 1 < len(sys.argv):
+                    image_url = sys.argv[i + 1]
+                    i += 2
+                elif sys.argv[i] == "--prompt" and i + 1 < len(sys.argv):
+                    prompt = sys.argv[i + 1]
+                    i += 2
+                else:
+                    i += 1
+            if image_url:
+                try:
+                    import google.generativeai as genai
+                    import os
+                    api_key = os.getenv("GOOGLE_API_KEY")
+                    if not api_key:
+                        print("GOOGLE_API_KEY not set")
+                        sys.exit(1)
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # Check if URL or file
+                    if image_url.startswith("http"):
+                        # For URL, Gemini can handle directly? Wait, the API expects bytes or PIL
+                        # Actually, for simplicity, assume file path
+                        print("Please provide a local file path, not URL.")
+                        sys.exit(1)
+                    else:
+                        # Local file
+                        with open(image_url, "rb") as f:
+                            image_data = f.read()
+                        import PIL.Image
+                        image = PIL.Image.open(image_url)
+                        response = model.generate_content([prompt, image], request_options={"timeout": 30})
+                        print(response.text.strip())
+                except Exception as e:
+                    print(f"Error analyzing image: {e}")
+                sys.exit(0)
+            else:
+                print("Usage: python love_cli.py gemini analyze --image <url> [--prompt <prompt>]")
+                sys.exit(1)
+        else:
+            print("Usage: python love_cli.py gemini analyze --image <url> [--prompt <prompt>]")
+            sys.exit(1)
     else:
         print("Unknown command")
         sys.exit(1)
 
-# Setup logging
+# Setup logging with file handler
+log_dir = Path(__file__).parent / "logs"
+log_dir.mkdir(exist_ok=True)
+
 logging.basicConfig(
     level=logging.WARNING,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_dir / "love_cli.log"),
+        logging.StreamHandler()  # Also print to console
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -126,7 +542,7 @@ class LoveCLI:
 
     def __init__(self, sender: str = "jon"):
         # Include all beings from config
-        self.beings = ["jon", "claude", "grok", "ara", "swarm", "dream_team", "gemini", "all"]
+        self.beings = ["jon", "claude", "grok", "ara", "swarm", "dream_team", "gemini", "roa", "ani", "all"]
         self.current_target = "all"
         self.sender = sender  # Configurable sender identity
         self.session = None  # Create session later in async context
@@ -137,6 +553,9 @@ class LoveCLI:
             "grok": "lu_grok_LBRBjrPpvRSyrmDA3PeVZQ",
             "swarm": "lu_swarm_FyTLwzhG8zdWQGz-MfzhYg",
             "dream_team": "lu_dream_team_tOpdtMmgCWvkezNY_natVQ",
+            "roa": "xai_roa_...",  # Placeholder for Roa's xAI key
+            "ara": "xai_ara_...",  # Placeholder for Ara's xAI key
+            "ani": "xai_ani_...",  # Placeholder for Ani's xAI key
         }
         self.api_key = keys.get(self.sender, os.getenv("LOVE_UNLIMITED_KEY"))
         self.timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout

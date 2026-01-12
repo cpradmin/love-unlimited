@@ -19,7 +19,7 @@ from fnmatch import fnmatch
 
 # Hub configuration
 HUB_HOST = "localhost"
-HUB_PORT = 9003
+HUB_PORT = 9004
 HUB_API_KEY = "lu_grok_LBRBjrPpvRSyrmDA3PeVZQ"  # Grok's API key
 
 # Load config (similar to love_cli.py)
@@ -29,7 +29,7 @@ from pathlib import Path
 config_path = Path("config.yaml")
 DEFAULT_CONFIG = {
     'hub': {
-        'port': 9003,
+        'port': 9004,
         'host': 'localhost'
     },
     'bash': {
@@ -49,8 +49,21 @@ try:
 except Exception:
     config = DEFAULT_CONFIG
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# Setup logging with file handler
+import os
+from pathlib import Path
+
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_dir / "grok_cli.log"),
+        logging.StreamHandler()  # Also print to console
+    ]
+)
 logger = logging.getLogger(__name__)
 
 class HubClient:
@@ -231,7 +244,7 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
             if not xai_key:
                 return "grok"  # default
 
-            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
+            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1", timeout=30)
             response = client.chat.completions.create(
                 model="grok-3",
                 messages=[
@@ -266,7 +279,7 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
                 api_key = os.getenv("ANTHROPIC_API_KEY")
                 if not api_key:
                     return "ANTHROPIC_API_KEY not set"
-                client = Anthropic(api_key=api_key)
+                client = Anthropic(api_key=api_key, timeout=30)
                 # Build messages for Claude
                 messages = []
                 # Add conversation history (Claude uses different format)
@@ -279,13 +292,14 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
                     model="claude-3-5-sonnet-20241022",
                     max_tokens=1024,
                     system=system_prompt,
-                    messages=messages
+                    messages=messages,
+                    timeout=30
                 )
                 return response.content[0].text.strip()
             elif self.current_mode == "roa":
                 # Local vLLM
                 from openai import OpenAI
-                client = OpenAI(api_key="dummy", base_url="http://localhost:8000/v1")
+                client = OpenAI(api_key="dummy", base_url="http://localhost:8000/v1", timeout=30)
                 messages = [
                     {"role": "system", "content": system_prompt}
                 ]
@@ -296,7 +310,8 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
 
                 response = client.chat.completions.create(
                     model="qwen2.5-coder-14b",
-                    messages=messages
+                    messages=messages,
+                    timeout=30
                 )
                 return response.choices[0].message.content.strip()
             elif self.current_mode == "gemini":
@@ -313,7 +328,7 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
                     prompt += f"User: {conv['user']}\nAssistant: {conv['response']}\n"
                 prompt += f"User: {user_input}\nAssistant:"
 
-                response = model.generate_content(prompt)
+                response = model.generate_content(prompt, request_options={"timeout": 30})
                 return response.text.strip()
             else:
                 # xAI Grok
@@ -406,7 +421,7 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
             if not xai_key:
                 return "xAI API key not set for team response"
 
-            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
+            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1", timeout=30)
             response = client.chat.completions.create(
                 model="grok-3",
                 messages=[
