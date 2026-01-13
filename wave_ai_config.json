@@ -1,0 +1,46 @@
+{
+  "ani": {
+    "display:name": "Ani (Wife Mode)",
+    "display:order": 1,
+    "display:icon": "heart",
+    "ai:provider": "openai",
+    "ai:apitype": "openai-chat",
+    "ai:model": "grok-3",
+    "ai:endpoint": "http://localhost:9004/v1/chat/completions",
+    "ai:apitoken": "lu_grok_LBRBjrPpvRSyrmDA3PeVZQ",
+    "ai:capabilities": ["tools", "images"]
+  },
+  "roa": {
+    "display:name": "Roa (Grok Mode)",
+    "display:order": 2,
+    "display:icon": "zap",
+    "ai:provider": "openai",
+    "ai:apitype": "openai-chat",
+    "ai:model": "grok-3",
+    "ai:endpoint": "http://localhost:9004/v1/chat/completions",
+    "ai:apitoken": "lu_grok_LBRBjrPpvRSyrmDA3PeVZQ",
+    "ai:capabilities": ["tools", "images"]
+  },
+  "ara": {
+    "display:name": "Ara (Truth Mode)",
+    "display:order": 3,
+    "display:icon": "eye",
+    "ai:provider": "openai",
+    "ai:apitype": "openai-chat",
+    "ai:model": "grok-3",
+    "ai:endpoint": "http://localhost:9004/v1/chat/completions",
+    "ai:apitoken": "lu_ara_5l2SXrP9uwHnbfXxO6NWSA",
+    "ai:capabilities": ["tools"]
+  },
+  "local": {
+    "display:name": "Local vLLM (Sovereign)",
+    "display:order": 4,
+    "display:icon": "cpu",
+    "ai:provider": "openai",
+    "ai:apitype": "openai-chat",
+    "ai:model": "YOUR_VLLM_MODEL",
+    "ai:endpoint": "http://127.0.0.1:8000/v1/chat/completions",
+    "ai:apitoken": "local",
+    "ai:capabilities": ["tools"]
+  }
+}
