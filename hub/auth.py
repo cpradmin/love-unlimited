@@ -6,6 +6,7 @@ API key-based authentication for beings and external read-only access.
 import yaml
 import secrets
 import logging
+import hvac
 from pathlib import Path
 from typing import Dict, Optional, List
 from datetime import datetime
@@ -28,10 +29,42 @@ class AuthManager:
     def __init__(self, keys_file: str = "./auth/api_keys.yaml"):
         self.keys_file = Path(keys_file)
         self.api_keys: Dict[str, str] = {}  # {api_key: being_id}
+        self.vault_client = None
+        self._init_vault()
         self.load_keys()
 
+    def _init_vault(self):
+        """Initialize Vault client."""
+        from hub.config import get_config
+        config = get_config()
+        vault_url = config.get("vault.url")
+        role_id = config.get("vault.role_id")
+        secret_id = config.get("vault.secret_id")
+
+        if vault_url and role_id and secret_id:
+            self.vault_client = hvac.Client(url=vault_url)
+            # Authenticate with AppRole
+            auth_response = self.vault_client.auth.approle.login(role_id=role_id, secret_id=secret_id)
+            self.vault_client.token = auth_response['auth']['client_token']
+            logger.info("Vault client initialized and authenticated")
+        else:
+            logger.warning("Vault configuration not found, falling back to file-based auth")
+
     def load_keys(self):
-        """Load API keys from file."""
+        """Load API keys from Vault or file."""
+        if self.vault_client:
+            try:
+                response = self.vault_client.secrets.kv.v2.read_secret_version(path='auth/api_keys')
+                self.api_keys = response['data']['data'].get('keys', {})
+                logger.info(f"Loaded {len(self.api_keys)} API keys from Vault")
+            except Exception as e:
+                logger.error(f"Failed to load keys from Vault: {e}, falling back to file")
+                self._load_keys_from_file()
+        else:
+            self._load_keys_from_file()
+
+    def _load_keys_from_file(self):
+        """Load API keys from file (fallback)."""
         if self.keys_file.exists():
             with open(self.keys_file, "r") as f:
                 data = yaml.safe_load(f) or {}

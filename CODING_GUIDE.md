@@ -18,6 +18,33 @@ All four AIs (Claude, Grok, Swarm, and Dream Team) are capable of writing code. 
 - **Style**: Detailed, helpful, conversational
 - **Use when**: You want alternatives or need explanations
 
+### 🔐 Secrets Management
+
+Never store API keys, passwords, or sensitive data in plain text:
+
+- **Use Vault**: Store all secrets in HashiCorp Vault KV store
+- **AppRole Auth**: Use AppRole for secure, non-interactive authentication
+- **Code Pattern**: Initialize hvac client, authenticate with role_id/secret_id, read secrets from `secret/data/path`
+- **Fallback**: Always provide file fallback for development/local testing
+
+Example:
+```python
+import hvac
+from hub.config import get_config
+
+config = get_config()
+vault_url = config.get("vault.url")
+role_id = config.get("vault.role_id")
+secret_id = config.get("vault.secret_id")
+
+client = hvac.Client(url=vault_url)
+auth = client.auth.approle.login(role_id=role_id, secret_id=secret_id)
+client.token = auth['auth']['client_token']
+
+secrets = client.secrets.kv.v2.read_secret_version(path='path/to/secrets')
+data = secrets['data']['data']
+```
+
 ### 🛠️ Coding Tools & Resources
 
 #### Aider (Primary Coding Assistant)

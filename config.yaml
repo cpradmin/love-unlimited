@@ -4,7 +4,7 @@ hub:
   name: "Love-Unlimited"
   version: "0.1.0"
   host: "0.0.0.0"
-  port: 9004
+  port: 9003
   debug: true
   api_key: lu_jon_QmZCAglY6kqsIdl6cRADpQ
 
@@ -28,6 +28,11 @@ memory:
 
 auth:
   enabled: true
+
+vault:
+  url: "http://localhost:8200"
+  role_id: "04551d87-2a20-c2cc-e85c-601b9205ca40"
+  secret_id: "2e03d785-8595-8e68-e2cf-daf1c87bd128"
   api_keys:
     - name: "jon"
       key: "lu_jon_QmZCAglY6kqsIdl6cRADpQ"

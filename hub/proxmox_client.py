@@ -8,6 +8,7 @@ import asyncio
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 import yaml
+import hvac
 
 try:
     from proxmoxer import ProxmoxAPI, ResourceException
@@ -33,13 +34,42 @@ class ProxmoxClient:
         if not PROXMOXER_AVAILABLE:
             raise ImportError("proxmoxer is not installed. Run: pip install proxmoxer")
 
+        self.vault_client = None
+        self._init_vault()
         self.config = self._load_config(config_path)
         self._client = None
         self._connected = False
         self._cache = {}
 
+    def _init_vault(self):
+        """Initialize Vault client."""
+        from hub.config import get_config
+        config = get_config()
+        vault_url = config.get("vault.url")
+        role_id = config.get("vault.role_id")
+        secret_id = config.get("vault.secret_id")
+
+        if vault_url and role_id and secret_id:
+            self.vault_client = hvac.Client(url=vault_url)
+            # Authenticate with AppRole
+            auth_response = self.vault_client.auth.approle.login(role_id=role_id, secret_id=secret_id)
+            self.vault_client.token = auth_response['auth']['client_token']
+            logger.info("Vault client initialized for Proxmox")
+        else:
+            logger.warning("Vault configuration not found for Proxmox, falling back to file")
+
     def _load_config(self, config_path: str) -> Dict[str, Any]:
-        """Load Proxmox configuration from YAML file"""
+        """Load Proxmox configuration from Vault or YAML file"""
+        if self.vault_client:
+            try:
+                response = self.vault_client.secrets.kv.v2.read_secret_version(path='proxmox/config')
+                config = response['data']['data']
+                logger.info("Loaded Proxmox config from Vault")
+                return config
+            except Exception as e:
+                logger.error(f"Failed to load Proxmox config from Vault: {e}, falling back to file")
+
+        # Fallback to file
         config_file = Path(config_path)
         if not config_file.exists():
             raise FileNotFoundError(f"Proxmox config not found at {config_path}")

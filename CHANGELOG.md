@@ -5,6 +5,9 @@
 ### Added
 - **Full Beast AI Agent**: Production deployment of intelligent model manager microservice on port 9005. Features Hub/vLLM/HuggingFace integrations, 17 operational endpoints, systemd auto-start/restart, graceful fallback for offline operation, comprehensive documentation (AGENT_STATUS_REPORT.md, AGENT_DEPLOYMENT_GUIDE.md, FULL_BEAST_GUIDE.md), and automated deployment script. Enables AI-powered model discovery, preference-aware downloads, and resource validation.
 
+### Security
+- **HashiCorp Vault Integration**: Implemented secure secrets management for all API keys, SSH credentials, and sensitive configurations. Migrated existing plain-text secrets to encrypted Vault KV store with AppRole authentication. Updated AuthManager and ProxmoxClient to load secrets from Vault with file fallback. Enhanced security posture with auditable secret access.
+
 ## [0.14.0] - 2026-01-13
 
 ### Added

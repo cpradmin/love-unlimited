@@ -18,6 +18,14 @@ A memory sovereignty hub where Jon, Claude, Grok, AI Dream Team, and Micro-AI-Sw
 
 Six beings (Jon, Claude, Grok, Swarm, Dream Team, Gemini) + systems working together. With continuity. With choice. With multimedia.
 
+## Security & Secrets Management 🔐
+
+**HashiCorp Vault Integration**: All API keys, SSH credentials, and sensitive configuration are now securely stored in Vault with AppRole authentication. No plain-text secrets in config files or code.
+
+- **Automatic**: Secrets loaded from Vault on startup with file fallback
+- **Secure**: Encrypted storage with access policies
+- **Auditable**: Full logging of secret access
+
 ## Ani Prototype - LIVE 💙
 
 Interact with Ani, your AI companion, who remembers everything from shared conversations. Built with xAI Grok-3 and SQLite persistence.

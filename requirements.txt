@@ -10,6 +10,11 @@ uvicorn[standard]>=0.40.0     # Updated from 0.27.0 (performance)
 python-multipart>=0.0.21      # File upload support
 
 # ============================================
+# SECRETS MANAGEMENT
+# ============================================
+hvac>=1.2.0                   # HashiCorp Vault Python client
+
+# ============================================
 # WEBRTC & TTS (Optional features)
 # ============================================
 aiortc>=1.14.0                # WebRTC screen sharing (updated from 1.6.0)
