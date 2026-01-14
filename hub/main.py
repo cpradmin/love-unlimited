@@ -36,6 +36,8 @@ from beings import BeingManager
 from hub.ai_clients import ai_manager
 from web_browsing_agent import WebBrowsingAgent
 from hub.proxmox_client import get_proxmox_client
+from hub.netbird_client import get_netbird_client
+from hub.luuc_canvas import get_luuc_canvas
 from hub.webssh_proxy import WebSSHProxy
 from hub.proxmox_models import (
     NodesListResponse,
@@ -4290,6 +4292,296 @@ async def proxmox_cluster_resources(api_key: str = Depends(verify_api_key)):
 
 
 # ============================================================================
+# Netbird VPN Management
+# ============================================================================
+
+@app.get("/netbird/health", response_model=dict)
+async def netbird_health(api_key: str = Depends(verify_api_key)):
+    """Check Netbird API connection and health status"""
+    try:
+        netbird = await get_netbird_client()
+        account = await netbird.get_account()
+        return {
+            "success": True,
+            "connected": True,
+            "message": "Connected to Netbird API",
+            "account": account
+        }
+    except Exception as e:
+        logger.error(f"Netbird health check failed: {str(e)}")
+        return {
+            "success": False,
+            "connected": False,
+            "message": f"Error checking Netbird health: {str(e)}"
+        }
+
+
+@app.get("/netbird/peers", response_model=dict)
+async def netbird_list_peers(api_key: str = Depends(verify_api_key)):
+    """List all VPN peers"""
+    try:
+        netbird = await get_netbird_client()
+        peers = await netbird.list_peers()
+        return {
+            "success": True,
+            "count": len(peers),
+            "peers": peers
+        }
+    except Exception as e:
+        logger.error(f"Failed to list peers: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/netbird/peers/{peer_id}", response_model=dict)
+async def netbird_get_peer(peer_id: str, api_key: str = Depends(verify_api_key)):
+    """Get details of a specific peer"""
+    try:
+        netbird = await get_netbird_client()
+        peer = await netbird.get_peer(peer_id)
+        return {
+            "success": True,
+            "peer": peer
+        }
+    except Exception as e:
+        logger.error(f"Failed to get peer {peer_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/netbird/peers", response_model=dict)
+async def netbird_add_peer(peer_data: Dict[str, Any], api_key: str = Depends(verify_api_key)):
+    """Add a new VPN peer"""
+    try:
+        netbird = await get_netbird_client()
+        result = await netbird.add_peer(peer_data)
+        return {
+            "success": True,
+            "peer": result
+        }
+    except Exception as e:
+        logger.error(f"Failed to add peer: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/netbird/peers/{peer_id}", response_model=dict)
+async def netbird_update_peer(peer_id: str, peer_data: Dict[str, Any], api_key: str = Depends(verify_api_key)):
+    """Update an existing VPN peer"""
+    try:
+        netbird = await get_netbird_client()
+        result = await netbird.update_peer(peer_id, peer_data)
+        return {
+            "success": True,
+            "peer": result
+        }
+    except Exception as e:
+        logger.error(f"Failed to update peer {peer_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/netbird/peers/{peer_id}", response_model=dict)
+async def netbird_remove_peer(peer_id: str, api_key: str = Depends(verify_api_key)):
+    """Remove a VPN peer"""
+    try:
+        netbird = await get_netbird_client()
+        await netbird.remove_peer(peer_id)
+        return {
+            "success": True,
+            "message": f"Peer {peer_id} removed successfully"
+        }
+    except Exception as e:
+        logger.error(f"Failed to remove peer {peer_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/netbird/networks", response_model=dict)
+async def netbird_list_networks(api_key: str = Depends(verify_api_key)):
+    """List all networks"""
+    try:
+        netbird = await get_netbird_client()
+        networks = await netbird.list_networks()
+        return {
+            "success": True,
+            "count": len(networks),
+            "networks": networks
+        }
+    except Exception as e:
+        logger.error(f"Failed to list networks: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/netbird/access-rules", response_model=dict)
+async def netbird_list_access_rules(api_key: str = Depends(verify_api_key)):
+    """List all access rules"""
+    try:
+        netbird = await get_netbird_client()
+        rules = await netbird.list_access_rules()
+        return {
+            "success": True,
+            "count": len(rules),
+            "rules": rules
+        }
+    except Exception as e:
+        logger.error(f"Failed to list access rules: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# LUUC (Love Unlimited Universe Canvas) - Living Diagram System
+# ============================================================================
+
+# Mount LUUC static files
+app.mount("/luuc/static", StaticFiles(directory="static/luuc"), name="luuc_static")
+app.mount("/luuc-editor", StaticFiles(directory="static/luuc-editor"), name="luuc_editor_static")
+
+@app.get("/luuc", response_class=HTMLResponse)
+async def luuc_canvas(request: Request, api_key: str = Depends(verify_api_key)):
+    """Serve the LUUC canvas interface."""
+    try:
+        # Read the HTML file
+        html_file = Path("static/luuc/index.html")
+        if not html_file.exists():
+            raise HTTPException(status_code=404, detail="LUUC interface not found")
+
+        with open(html_file, "r") as f:
+            html_content = f.read()
+
+        # Inject API key into the HTML for JavaScript
+        html_content = html_content.replace(
+            "apiKey = localStorage.getItem('luuc_api_key') || '';",
+            f"apiKey = '{api_key}'; localStorage.setItem('luuc_api_key', '{api_key}');"
+        )
+
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        logger.error(f"Failed to serve LUUC interface: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/luuc/diagrams", response_model=dict)
+async def luuc_list_diagrams(api_key: str = Depends(verify_api_key)):
+    """List all LUUC diagrams."""
+    try:
+        canvas = await get_luuc_canvas()
+        diagrams = await canvas.list_diagrams()
+        return {
+            "success": True,
+            "diagrams": [d.dict() for d in diagrams]
+        }
+    except Exception as e:
+        logger.error(f"Failed to list diagrams: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/luuc/diagrams", response_model=dict)
+async def luuc_create_diagram(request: Request, api_key: str = Depends(verify_api_key)):
+    """Create a new LUUC diagram."""
+    try:
+        data = await request.json()
+        canvas = await get_luuc_canvas()
+        diagram = await canvas.create_diagram(
+            title=data.get("title", "Untitled Diagram"),
+            created_by=api_key,
+            xml_content=data.get("xml_content", "")
+        )
+        return {
+            "success": True,
+            "diagram": diagram.dict()
+        }
+    except Exception as e:
+        logger.error(f"Failed to create diagram: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/luuc/diagrams/{diagram_id}", response_model=dict)
+async def luuc_get_diagram(diagram_id: str, api_key: str = Depends(verify_api_key)):
+    """Get a specific LUUC diagram."""
+    try:
+        canvas = await get_luuc_canvas()
+        diagram = await canvas.get_diagram(diagram_id)
+        if not diagram:
+            raise HTTPException(status_code=404, detail="Diagram not found")
+        return {
+            "success": True,
+            "diagram": diagram.dict()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get diagram {diagram_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/luuc/diagrams/{diagram_id}", response_model=dict)
+async def luuc_update_diagram(diagram_id: str, request: Request, api_key: str = Depends(verify_api_key)):
+    """Update a LUUC diagram."""
+    try:
+        data = await request.json()
+        canvas = await get_luuc_canvas()
+        success = await canvas.update_diagram(
+            diagram_id,
+            data.get("xml_content", ""),
+            api_key
+        )
+        if not success:
+            raise HTTPException(status_code=404, detail="Diagram not found")
+        return {
+            "success": True,
+            "message": "Diagram updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update diagram {diagram_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/luuc/diagrams/{diagram_id}", response_model=dict)
+async def luuc_delete_diagram(diagram_id: str, api_key: str = Depends(verify_api_key)):
+    """Delete a LUUC diagram."""
+    try:
+        canvas = await get_luuc_canvas()
+        success = await canvas.delete_diagram(diagram_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Diagram not found")
+        return {
+            "success": True,
+            "message": "Diagram deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete diagram {diagram_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/luuc/generate", response_model=dict)
+async def luuc_generate_diagram(request: Request, api_key: str = Depends(verify_api_key)):
+    """Generate a diagram using AI."""
+    try:
+        data = await request.json()
+        prompt = data.get("prompt", "")
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required")
+
+        canvas = await get_luuc_canvas()
+        diagram = await canvas.generate_diagram(prompt, api_key)
+        if not diagram:
+            raise HTTPException(status_code=500, detail="Failed to generate diagram")
+
+        return {
+            "success": True,
+            "diagram": diagram.dict()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate diagram: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.websocket("/ws/luuc/{diagram_id}")
+async def luuc_websocket(websocket: WebSocket, diagram_id: str, client_id: str):
+    """WebSocket endpoint for real-time LUUC collaboration."""
+    try:
+        canvas = await get_luuc_canvas()
+        await canvas.websocket_handler(websocket, diagram_id, client_id)
+    except Exception as e:
+        logger.error(f"WebSocket error for diagram {diagram_id}: {e}")
+
+
+# ============================================================================
 # Web CLI - Real-time Chat Interface
 # ============================================================================
 
@@ -4637,12 +4929,7 @@ async def terminal_websocket_proxy(websocket: WebSocket):
         await websocket.close(code=1011, reason="WebSSH proxy not initialized")
         return
 
-    # Forward all query params to WebSSH
-    from urllib.parse import urlencode
-    query_params = dict(websocket.query_params)
-    path = f"/ws?{urlencode(query_params)}" if query_params else "/ws"
-
-    return await webssh_proxy.proxy_websocket(websocket=websocket, path=path)
+    return await webssh_proxy.proxy_websocket(websocket=websocket)
 
 
 @app.get("/terminal")
@@ -4652,7 +4939,7 @@ async def terminal_ui_proxy(request: Request):
     if not webssh_proxy:
         raise HTTPException(status_code=503, detail="WebSSH proxy not initialized")
 
-    return await webssh_proxy.proxy_http(request=request, path="/")
+    return await webssh_proxy.proxy_http(request=request)
 
 
 @app.get("/terminal/static/{path:path}")
@@ -4661,7 +4948,7 @@ async def terminal_static_proxy(request: Request, path: str):
     if not webssh_proxy:
         raise HTTPException(status_code=503, detail="WebSSH proxy not initialized")
 
-    return await webssh_proxy.proxy_http(request=request, path=f"/static/{path}")
+    return await webssh_proxy.proxy_http(request=request, path=f"static/{path}")
 
 
 # ============================================================================

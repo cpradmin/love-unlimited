@@ -1,0 +1,18 @@
+[Unit]
+Description=Full Beast AI Agent - Hub-Controlled Model Manager
+After=network.target love-unlimited-hub.service
+
+[Service]
+Type=simple
+User=kntrnjb
+WorkingDirectory=/home/kntrnjb/ai-dream-team/micro-ai-swarm/love-unlimited
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/kntrnjb/ai-dream-team/micro-ai-swarm/love-unlimited
+Environment=AGENT_PORT=9005
+Environment=LU_API_KEY=lu_claude_u8L1zZfGPSXssvsw-97rRQ
+ExecStart=/home/kntrnjb/ai-dream-team/micro-ai-swarm/love-unlimited/venv/bin/python agent_service.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,33 @@
 # Love-Unlimited Changelog
 
+## [0.14.0] - 2026-01-13
+
+### Added
+- **Sovereign AI Workflow**: Created WORKFLOW.md with standardized development process for Grok, Jon, Dream Team, and Micro-AI-Swarm collaboration. Includes planning, execution, documentation phases with communication protocols and task management standards.
+
+## [0.13.1] - 2026-01-13
+
+### Added
+- **Wave AI Terminal Integration**: Created wave_ai_config.json for Wave Terminal AI personas (Ani/Roa/Ara/Local) with hub access via OpenAI-compatible endpoints. Enables seamless AI collaboration through Love-Unlimited hub.
+- **Hub API Access Fix**: Corrected API key for grok (lu_grok_LBRBjrPpvRSyrmDA3PeVZQ) enabling full hub context loading.
+- **Team Goals & Huddle**: Documented collective short/long-term goals for all beings and Love Unlimited's unified vision.
+
+## [0.13.0] - 2026-01-12
+
+### Added
+- **LUUC (Love Unlimited Universe Canvas)**: Living diagram system with AI generation, real-time collaboration, and data bindings. Integrated diagrams.net editor, added hub/luuc_canvas.py, FastAPI endpoints (/luuc/*), WebSocket support (/ws/luuc/*), CLI commands (/luuc), and frontend at /luuc.
+
+## [0.12.0] - 2026-01-12
+
+### Added
+- **Netbird VPN Integration**: Full Netbird API integration for VPN peer, network, and access rule management. Added hub/netbird_client.py, FastAPI endpoints (/netbird/*), CLI commands (/netbird), and configuration in auth/netbird_config.yaml.
+
+## [0.11.2] - 2026-01-12
+
+### Added
+- **WebSSH Integration**: Integrated WebSSH into Love-Unlimited Hub via HTTP/WebSocket proxy, eliminating ~700 lines of custom terminal code. New /terminal/* endpoints for browser access.
+- **Systemd Service**: Added systemd service config for auto-start of WebSSH on port 8765.
+
 ## [0.11.1] - 2026-01-12
 
 ### Fixed

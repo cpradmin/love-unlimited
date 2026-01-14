@@ -1,0 +1,10 @@
+# Netbird API Configuration
+# Stores credentials and connection details for Netbird VPN management
+
+netbird:
+  # API Connection Details
+  base_url: "https://api.netbird.io"
+  api_token: "nbp_FZr3tWUyvAvkR0IiaevXqhxUuW3Kp50Cfx2M"  # Configured with provided token
+
+  # Optional: Custom timeout (seconds)
+  timeout: 30

@@ -782,6 +782,141 @@ class LoveCLI:
                     else:
                         print("❌ Unknown file action. Use view or edit.")
 
+                elif user_input.startswith("/netbird "):
+                    parts = user_input[9:].strip().split(' ', 1)
+                    if len(parts) < 1:
+                        print("❌ Usage: /netbird <command> [args]")
+                        print("   Available commands: health, list-peers, list-networks, list-rules")
+                        continue
+                    subcommand = parts[0].lower()
+                    args = parts[1] if len(parts) > 1 else ""
+
+                    try:
+                        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+                        if subcommand == "health":
+                            async with self.session.get(f"{HUB_URL}/netbird/health", headers=headers) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if data.get("success"):
+                                        print("✅ Netbird API connected")
+                                        print(f"Account: {data.get('account', {})}")
+                                    else:
+                                        print("❌ Netbird API error:", data.get("message"))
+                                else:
+                                    print(f"❌ HTTP {resp.status}: Failed to check Netbird health")
+
+                        elif subcommand == "list-peers":
+                            async with self.session.get(f"{HUB_URL}/netbird/peers", headers=headers) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if data.get("success"):
+                                        peers = data.get("peers", [])
+                                        print(f"\n📡 VPN Peers ({len(peers)}):")
+                                        for peer in peers:
+                                            print(f"  • {peer.get('id', 'Unknown')} - {peer.get('name', 'Unnamed')}")
+                                    else:
+                                        print("❌ Failed to list peers")
+                                else:
+                                    print(f"❌ HTTP {resp.status}: Failed to list peers")
+
+                        elif subcommand == "list-networks":
+                            async with self.session.get(f"{HUB_URL}/netbird/networks", headers=headers) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if data.get("success"):
+                                        networks = data.get("networks", [])
+                                        print(f"\n🌐 Networks ({len(networks)}):")
+                                        for net in networks:
+                                            print(f"  • {net.get('id', 'Unknown')} - {net.get('name', 'Unnamed')}")
+                                    else:
+                                        print("❌ Failed to list networks")
+                                else:
+                                    print(f"❌ HTTP {resp.status}: Failed to list networks")
+
+                        elif subcommand == "list-rules":
+                            async with self.session.get(f"{HUB_URL}/netbird/access-rules", headers=headers) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if data.get("success"):
+                                        rules = data.get("rules", [])
+                                        print(f"\n🔒 Access Rules ({len(rules)}):")
+                                        for rule in rules:
+                                            print(f"  • {rule.get('id', 'Unknown')} - {rule.get('name', 'Unnamed')}")
+                                    else:
+                                        print("❌ Failed to list access rules")
+                                else:
+                                    print(f"❌ HTTP {resp.status}: Failed to list access rules")
+
+                        else:
+                            print(f"❌ Unknown netbird command: {subcommand}")
+                            print("   Available: health, list-peers, list-networks, list-rules")
+
+                    except Exception as e:
+                        print(f"❌ Netbird command failed: {e}")
+
+                elif user_input.startswith("/luuc "):
+                    parts = user_input[6:].strip().split(' ', 1)
+                    if len(parts) < 1:
+                        print("❌ Usage: /luuc <command> [args]")
+                        print("   Available commands: list, create, generate")
+                        continue
+                    subcommand = parts[0].lower()
+                    args = parts[1] if len(parts) > 1 else ""
+
+                    try:
+                        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+                        if subcommand == "list":
+                            async with self.session.get(f"{HUB_URL}/luuc/diagrams", headers=headers) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if data.get("success"):
+                                        diagrams = data.get("diagrams", [])
+                                        print(f"\n🎨 LUUC Diagrams ({len(diagrams)}):")
+                                        for diagram in diagrams:
+                                            print(f"  • {diagram.get('title', 'Untitled')} (ID: {diagram.get('id', 'Unknown')})")
+                                            updated_at = diagram.get('updated_at', 'Unknown')
+                                            print(f"    Created by {diagram.get('created_by', 'Unknown')} • {updated_at}")
+                                    else:
+                                        print("❌ Failed to list diagrams")
+                                else:
+                                    print(f"❌ HTTP {resp.status}: Failed to list diagrams")
+
+                        elif subcommand == "create":
+                            title = args or input("Enter diagram title: ")
+                            if title:
+                                async with self.session.post(f"{HUB_URL}/luuc/diagrams", headers=headers, json={"title": title}) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        if data.get("success"):
+                                            print(f"✅ Diagram created: {data.get('diagram', {}).get('title', 'Unknown')}")
+                                            print(f"   ID: {data.get('diagram', {}).get('id', 'Unknown')}")
+                                        else:
+                                            print("❌ Failed to create diagram")
+                                    else:
+                                        print(f"❌ HTTP {resp.status}: Failed to create diagram")
+
+                        elif subcommand == "generate":
+                            prompt = args or input("Describe the diagram to generate: ")
+                            if prompt:
+                                async with self.session.post(f"{HUB_URL}/luuc/generate", headers=headers, json={"prompt": prompt}) as resp:
+                                    if resp.status == 200:
+                                        data = await resp.json()
+                                        if data.get("success"):
+                                            print(f"🤖 AI-generated diagram: {data.get('diagram', {}).get('title', 'Unknown')}")
+                                            print(f"   ID: {data.get('diagram', {}).get('id', 'Unknown')}")
+                                            print("   Open in browser: /luuc")
+                                        else:
+                                            print("❌ Failed to generate diagram")
+                                    else:
+                                        print(f"❌ HTTP {resp.status}: Failed to generate diagram")
+
+                        else:
+                            print(f"❌ Unknown luuc command: {subcommand}")
+                            print("   Available: list, create, generate")
+
+                    except Exception as e:
+                        print(f"❌ LUUC command failed: {e}")
+
                 elif user_input == "/grok":
                     print("Launching Grok CLI component...")
                     grok_component = GrokCLIComponent()

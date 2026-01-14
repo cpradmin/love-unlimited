@@ -497,6 +497,48 @@ class AIClientManager:
 
         return await client.generate_response(prompt, context)
 
+    async def generate_diagram_xml(self, prompt: str, being_id: str = "grok") -> Optional[str]:
+        """Generate diagram XML from AI prompt."""
+        client = self.clients.get(being_id)
+        if not client:
+            logger.warning(f"No client found for being: {being_id}, falling back to grok")
+            client = self.clients.get("grok")
+
+        if not client:
+            return None
+
+        # Create diagram generation prompt
+        diagram_prompt = f"""You are an expert at creating diagrams.net XML diagrams.
+
+Generate a valid diagrams.net XML diagram based on this request: {prompt}
+
+Requirements:
+- Return ONLY the XML content, no explanations or additional text
+- Use proper diagrams.net XML format with mxfile, diagram, and mxGraphModel elements
+- Include appropriate shapes, connections, and styling
+- Make the diagram visually clear and well-structured
+- Use meaningful labels and layouts
+
+Example structure:
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="Mozilla/5.0" version="15.0.0" etag="123456">
+  <diagram id="diagram1" name="Page-1">
+    <mxGraphModel dx="1000" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <!-- Your diagram elements here -->
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>"""
+
+        try:
+            return await client.generate_response(diagram_prompt)
+        except Exception as e:
+            logger.error(f"Failed to generate diagram XML: {e}")
+            return None
+
     async def get_available_beings(self) -> List[str]:
         """Get list of beings with available AI clients."""
         available = []

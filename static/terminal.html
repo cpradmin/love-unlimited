@@ -85,6 +85,11 @@
 </head>
 <body>
     <h1>Terminal Mesh Dashboard</h1>
+    <div style="margin-bottom: 10px; text-align: right;">
+        <label>
+            <input type="checkbox" id="pairProgrammingMode" checked> Pair Programming Mode (confirm commands)
+        </label>
+    </div>
     <div class="container">
         <div class="sidebar">
             <div class="section">
@@ -360,12 +365,27 @@
 
         function sendCommand() {
             const command = commandInput.value;
-            if (ws && ws.readyState === WebSocket.OPEN && command) {
-                ws.send(command + '\n');
-                commandInput.value = '';
-            } else {
-                updateStatus('No active session or command empty');
+            if (!command) {
+                updateStatus('Command empty');
+                return;
             }
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                updateStatus('No active session');
+                return;
+            }
+
+            const pairMode = document.getElementById('pairProgrammingMode').checked;
+            if (pairMode) {
+                const confirmed = confirm(`AI wants to execute command: "${command}"\n\nAllow execution on session ${currentSessionId}?`);
+                if (!confirmed) {
+                    updateStatus('Command execution cancelled by user');
+                    return;
+                }
+            }
+
+            ws.send(command + '\n');
+            commandInput.value = '';
+            updateStatus(`Command sent: ${command}`);
         }
 
         function clearTerminal() {

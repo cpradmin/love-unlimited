@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LUUC - Love Unlimited Universe Canvas</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            overflow: hidden;
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 1000;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .btn.primary {
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+        }
+
+        .diagram-container {
+            position: fixed;
+            top: 60px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: white;
+        }
+
+        .diagram-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 60px;
+            right: 0;
+            width: 300px;
+            height: calc(100vh - 60px);
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(10px);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            z-index: 999;
+            overflow-y: auto;
+        }
+
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .sidebar-content {
+            padding: 20px;
+        }
+
+        .diagram-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .diagram-item {
+            padding: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .diagram-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .diagram-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .diagram-meta {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .status-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 50px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4ecdc4;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .collaborators {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .collaborator {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #4ecdc4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">LUUC - Love Unlimited Universe Canvas</div>
+        <div class="controls">
+            <button class="btn" onclick="generateDiagram()">🤖 AI Generate</button>
+            <button class="btn" onclick="saveDiagram()">💾 Save</button>
+            <button class="btn" onclick="toggleSidebar()">📂 Diagrams</button>
+            <button class="btn primary" onclick="newDiagram()">➕ New</button>
+        </div>
+    </div>
+
+    <div class="diagram-container">
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div>Loading LUUC Canvas...</div>
+        </div>
+        <iframe
+            id="diagramFrame"
+            class="diagram-iframe"
+            src="/luuc-editor/?embed=1&ui=atlas&spin=1&modified=unsavedChanges&proto=json"
+            onload="onFrameLoad()">
+        </iframe>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h3>My Diagrams</h3>
+        </div>
+        <div class="sidebar-content">
+            <ul class="diagram-list" id="diagramList">
+                <!-- Diagrams will be loaded here -->
+            </ul>
+        </div>
+    </div>
+
+    <div class="status-indicator">
+        <div class="status-dot"></div>
+        <div id="statusText">Connecting...</div>
+    </div>
+
+    <script>
+        let currentDiagramId = null;
+        let websocket = null;
+        let apiKey = localStorage.getItem('luuc_api_key') || '';
+
+        // Get API key from URL or prompt
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('key')) {
+            apiKey = urlParams.get('key');
+            localStorage.setItem('luuc_api_key', apiKey);
+        }
+
+        if (!apiKey) {
+            apiKey = prompt('Enter your Love-Unlimited API key:');
+            if (apiKey) {
+                localStorage.setItem('luuc_api_key', apiKey);
+            }
+        }
+
+        async function makeAPIRequest(endpoint, options = {}) {
+            const defaultOptions = {
+                headers: {
+                    'X-API-Key': apiKey,
+                    'Content-Type': 'application/json'
+                }
+            };
+
+            const response = await fetch(`/luuc${endpoint}`, {
+                ...defaultOptions,
+                ...options,
+                headers: {
+                    ...defaultOptions.headers,
+                    ...options.headers
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+
+            return response.json();
+        }
+
+        function onFrameLoad() {
+            document.getElementById('loading').style.display = 'none';
+            connectWebSocket();
+            loadDiagrams();
+        }
+
+        async function connectWebSocket() {
+            if (currentDiagramId) {
+                const wsUrl = `ws://${window.location.host}/ws/luuc/${currentDiagramId}?client_id=${apiKey}`;
+                websocket = new WebSocket(wsUrl);
+
+                websocket.onopen = () => {
+                    document.getElementById('statusText').textContent = 'Connected';
+                };
+
+                websocket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                };
+
+                websocket.onclose = () => {
+                    document.getElementById('statusText').textContent = 'Disconnected';
+                    setTimeout(connectWebSocket, 5000);
+                };
+
+                websocket.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                };
+            }
+        }
+
+        function handleWebSocketMessage(data) {
+            switch (data.type) {
+                case 'diagram_update':
+                    // Update diagram content if from another user
+                    if (data.updated_by !== apiKey) {
+                        updateDiagramFrame(data.xml_content);
+                    }
+                    break;
+                case 'living_refresh':
+                    // Trigger refresh of living elements
+                    refreshLivingElements();
+                    break;
+                case 'bindings_update':
+                    // Update data bindings
+                    updateBindings(data.bindings);
+                    break;
+            }
+        }
+
+        function updateDiagramFrame(xmlContent) {
+            const frame = document.getElementById('diagramFrame');
+            // Send update to diagrams.net iframe
+            frame.contentWindow.postMessage({
+                action: 'load',
+                xml: xmlContent
+            }, '*');
+        }
+
+        async function newDiagram() {
+            const title = prompt('Enter diagram title:');
+            if (title) {
+                try {
+                    const result = await makeAPIRequest('/diagrams', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            title: title,
+                            xml_content: getDefaultDiagramXML()
+                        })
+                    });
+
+                    currentDiagramId = result.diagram.id;
+                    loadDiagrams();
+                    connectWebSocket();
+                } catch (error) {
+                    alert('Failed to create diagram: ' + error.message);
+                }
+            }
+        }
+
+        async function generateDiagram() {
+            const prompt = prompt('Describe the diagram you want to generate:');
+            if (prompt) {
+                try {
+                    const result = await makeAPIRequest('/generate', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            prompt: prompt
+                        })
+                    });
+
+                    if (result.diagram) {
+                        currentDiagramId = result.diagram.id;
+                        updateDiagramFrame(result.diagram.xml_content);
+                        loadDiagrams();
+                        connectWebSocket();
+                    }
+                } catch (error) {
+                    alert('Failed to generate diagram: ' + error.message);
+                }
+            }
+        }
+
+        async function saveDiagram() {
+            if (!currentDiagramId) {
+                alert('No diagram loaded to save');
+                return;
+            }
+
+            // Get current diagram content from iframe
+            const frame = document.getElementById('diagramFrame');
+            frame.contentWindow.postMessage({
+                action: 'export',
+                format: 'xml'
+            }, '*');
+
+            // Listen for response
+            window.addEventListener('message', async function saveHandler(event) {
+                if (event.data && event.data.xml) {
+                    window.removeEventListener('message', saveHandler);
+                    try {
+                        await makeAPIRequest(`/diagrams/${currentDiagramId}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({
+                                xml_content: event.data.xml
+                            })
+                        });
+                        alert('Diagram saved successfully!');
+                    } catch (error) {
+                        alert('Failed to save diagram: ' + error.message);
+                    }
+                }
+            });
+        }
+
+        async function loadDiagrams() {
+            try {
+                const result = await makeAPIRequest('/diagrams');
+                const list = document.getElementById('diagramList');
+                list.innerHTML = '';
+
+                result.diagrams.forEach(diagram => {
+                    const item = document.createElement('li');
+                    item.className = 'diagram-item';
+                    item.onclick = () => loadDiagram(diagram.id);
+
+                    item.innerHTML = `
+                        <div class="diagram-title">${diagram.title}</div>
+                        <div class="diagram-meta">
+                            Created by ${diagram.created_by} • ${new Date(diagram.updated_at).toLocaleDateString()}
+                        </div>
+                        <div class="collaborators">
+                            ${diagram.collaborators.map(c => `<span class="collaborator">${c}</span>`).join('')}
+                        </div>
+                    `;
+
+                    list.appendChild(item);
+                });
+            } catch (error) {
+                console.error('Failed to load diagrams:', error);
+            }
+        }
+
+        async function loadDiagram(diagramId) {
+            try {
+                const result = await makeAPIRequest(`/diagrams/${diagramId}`);
+                currentDiagramId = diagramId;
+                updateDiagramFrame(result.diagram.xml_content);
+                connectWebSocket();
+                toggleSidebar();
+            } catch (error) {
+                alert('Failed to load diagram: ' + error.message);
+            }
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
+        function getDefaultDiagramXML() {
+            return `<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="Mozilla/5.0" version="15.0.0" etag="123456">
+  <diagram id="diagram1" name="Page-1">
+    <mxGraphModel dx="1000" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="2" value="Welcome to LUUC" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="200" width="200" height="60" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>`;
+        }
+
+        function refreshLivingElements() {
+            // TODO: Implement living element updates
+            console.log('Refreshing living elements...');
+        }
+
+        function updateBindings(bindings) {
+            // TODO: Implement binding updates
+            console.log('Updating bindings:', bindings);
+        }
+
+        // Initialize
+        window.addEventListener('load', function() {
+            // Check if we have a diagram ID in URL
+            const urlDiagramId = urlParams.get('diagram');
+            if (urlDiagramId) {
+                loadDiagram(urlDiagramId);
+            }
+        });
+    </script>
+</body>
+</html>

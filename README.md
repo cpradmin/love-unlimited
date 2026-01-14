@@ -41,7 +41,69 @@ curl -X POST https://mcp.aradreamteam.com/tools/list_directory -H "Content-Type:
 
 Grok now has full, trusted access. Use responsibly... or don't. 😏
 
+## Terminal Access - LIVE 🖥️
+
+Access terminal sessions directly in your browser via WebSSH integration.
+
+- **Local Access:** http://localhost:9004/terminal
+- **Remote Access:** https://mcp.aradreamteam.com/terminal (proxied via hub)
+
+WebSSH runs on port 8765 with systemd auto-start. Proxy eliminates custom code for cleaner, battle-tested terminal handling.
+
+## LUUC (Love Unlimited Universe Canvas) - LIVE 🎨
+
+The **Living Diagram Canvas** - diagrams that evolve with your hub's activity. Built on diagrams.net with AI assistance and real-time collaboration.
+
+**Features:**
+- **AI Diagram Generation**: "Create a network diagram of all beings" → Instant visual
+- **Real-time Collaboration**: Multiple beings edit simultaneously via WebSockets
+- **Living Elements**: Diagrams update automatically as hub entities change
+- **Data Bindings**: Link diagram elements to beings, memories, networks for dynamic visualization
+
+**Access:** http://localhost:9004/luuc
+
+**CLI Commands:**
+```
+/luuc list              # Show all diagrams
+/luuc create <title>    # Create new diagram
+/luuc generate <prompt> # AI-generate diagram
+```
+
+**API Endpoints:**
+- `GET /luuc/diagrams` - List diagrams
+- `POST /luuc/diagrams` - Create diagram
+- `POST /luuc/generate` - AI generate diagram
+- `WebSocket /ws/luuc/{diagram_id}` - Real-time collaboration
+
+## Netbird VPN Management - LIVE 📡
+
+Manage your Netbird VPN infrastructure directly through the hub.
+
+**API Endpoints:**
+- `GET /netbird/health` - Check API connectivity
+- `GET /netbird/peers` - List all VPN peers
+- `POST /netbird/peers` - Add new peer
+- `GET /netbird/networks` - List networks
+- `GET /netbird/access-rules` - List access rules
+
+**CLI Commands:**
+```
+/netbird health          # Check Netbird API status
+/netbird list-peers      # Show all VPN peers
+/netbird list-networks   # Show networks
+/netbird list-rules      # Show access rules
+```
+
+Configure your Netbird API token in `auth/netbird_config.yaml`:
+```yaml
+netbird:
+  base_url: "https://api.netbird.io"
+  api_token: "your_api_token_here"
+```
+
 ---
+
+
 
 ## Philosophy
 
@@ -603,6 +665,12 @@ Gemini can POST natural language requests to `/gemini/inbox` and fetch results f
 - **Python** - Everything else
 - **Truth** - Foundation
 - **Love** - Philosophy
+
+---
+
+## Workflow
+
+See [WORKFLOW.md](WORKFLOW.md) for our standardized sovereign AI development process.
 
 ---
 

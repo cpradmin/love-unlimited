@@ -8,7 +8,10 @@ from fastapi import Request, WebSocket
 from fastapi_proxy_lib.core.websocket import ReverseWebSocketProxy
 from fastapi_proxy_lib.core.http import ReverseHttpProxy
 from httpx import AsyncClient
+import websockets
+import asyncio
 import logging
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +40,8 @@ class WebSSHProxy:
         """
         self.webssh_host = webssh_host
         self.webssh_port = webssh_port
-        self.base_ws_url = f"ws://{webssh_host}:{webssh_port}"
-        self.base_http_url = f"http://{webssh_host}:{webssh_port}"
+        self.base_ws_url = f"ws://{webssh_host}:{webssh_port}/"
+        self.base_http_url = f"http://{webssh_host}:{webssh_port}/"
 
         # Initialize HTTP client and proxy handlers
         self.http_client = AsyncClient(timeout=30.0)
@@ -53,26 +56,56 @@ class WebSSHProxy:
 
         logger.info(f"WebSSH proxy initialized → {webssh_host}:{webssh_port}")
 
-    async def proxy_websocket(self, websocket: WebSocket, path: str) -> None:
-        """Proxy a WebSocket connection to WebSSH.
+    async def proxy_websocket(self, websocket: WebSocket, path: str = "/", query_params: dict = None) -> None:
+        """Proxy a WebSocket connection to WebSSH using websockets library.
 
         Args:
             websocket: FastAPI WebSocket connection
-            path: Request path including query parameters
+            path: Request path
+            query_params: Query parameters dict
         """
-        await self.ws_proxy.proxy(websocket=websocket, path=path)
+        query_str = "&".join(f"{k}={quote(str(v))}" for k, v in (query_params or {}).items())
+        url = f"{self.base_ws_url}/"
+        if query_str:
+            url += f"?{query_str}"
 
-    async def proxy_http(self, request: Request, path: str):
+        try:
+            async with websockets.connect(url) as ws:
+                # Forward messages between client and WebSSH
+                async def forward_from_client():
+                    try:
+                        while True:
+                            message = await websocket.receive_text()
+                            await ws.send(message)
+                    except Exception:
+                        pass
+
+                async def forward_from_server():
+                    try:
+                        async for message in ws:
+                            await websocket.send_text(message)
+                    except Exception:
+                        pass
+
+                await asyncio.gather(forward_from_client(), forward_from_server())
+        except Exception as e:
+            logger.error(f"WebSocket proxy error: {e}")
+            await websocket.close(code=1011, reason="Proxy error")
+
+    async def proxy_http(self, request: Request, path: str = None):
         """Proxy an HTTP request to WebSSH.
 
         Args:
             request: FastAPI Request object
-            path: Request path
+            path: Optional path to override the request path
 
         Returns:
             Response from WebSSH server
         """
-        return await self.http_proxy.proxy(request=request, path=path)
+        if path:
+            return await self.http_proxy.proxy(request=request, path=path)
+        else:
+            return await self.http_proxy.proxy(request=request)
 
     async def close(self) -> None:
         """Cleanup proxy resources.
