@@ -39,6 +39,7 @@ from hub.proxmox_client import get_proxmox_client
 from hub.netbird_client import get_netbird_client
 from hub.luuc_canvas import get_luuc_canvas
 from hub.webssh_proxy import WebSSHProxy
+from hub.netdata_proxy import NetdataProxy
 from hub.proxmox_models import (
     NodesListResponse,
     VMsListResponse,
@@ -131,6 +132,7 @@ memory_store: Optional[MemoryStore] = None
 sharing_manager: Optional[SharingManager] = None
 media_store: Optional[MediaStore] = None
 webssh_proxy: Optional[WebSSHProxy] = None
+netdata_proxy: Optional[NetdataProxy] = None
 
 # WebRTC
 peer_connections: Dict[str, RTCPeerConnection] = {}
@@ -178,7 +180,7 @@ if cors_config.get("enabled", True):
 @app.on_event("startup")
 async def startup_event():
     """Initialize hub on startup."""
-    global long_term_memory, short_term_memory, being_manager, memory_store, sharing_manager, media_store, webssh_proxy
+    global long_term_memory, short_term_memory, being_manager, memory_store, sharing_manager, media_store, webssh_proxy, netdata_proxy
 
     logger.info("=" * 70)
     logger.info("Love-Unlimited Hub - Starting")
@@ -249,19 +251,22 @@ async def startup_event():
 
     # Initialize WebSSH proxy for terminal access
     webssh_proxy = WebSSHProxy()
+    netdata_proxy = NetdataProxy()
     logger.info("WebSSH proxy initialized - terminal access ready")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up on shutdown."""
-    global webssh_proxy
+    global webssh_proxy, netdata_proxy
     logger.info("Love-Unlimited Hub - Shutting down")
 
     # Shutdown WebSSH proxy
     if webssh_proxy:
         await webssh_proxy.close()
-        logger.info("WebSSH proxy closed")
+    if netdata_proxy:
+        await netdata_proxy.close()
+    logger.info("WebSSH and Netdata proxies closed")
 
 
 # ============================================================================
@@ -4579,6 +4584,41 @@ async def luuc_websocket(websocket: WebSocket, diagram_id: str, client_id: str):
         await canvas.websocket_handler(websocket, diagram_id, client_id)
     except Exception as e:
         logger.error(f"WebSocket error for diagram {diagram_id}: {e}")
+
+
+# ============================================================================
+# Netdata Monitoring Proxy
+# ============================================================================
+
+@app.websocket("/netdata/ws")
+async def netdata_websocket_proxy(websocket: WebSocket):
+    """
+    Proxy WebSocket connections to Netdata monitoring server.
+    """
+    if not netdata_proxy:
+        await websocket.close(code=1011, reason="Netdata proxy not initialized")
+        return
+
+    return await netdata_proxy.proxy_websocket(websocket=websocket)
+
+
+@app.get("/netdata")
+@app.get("/netdata/")
+async def netdata_ui_proxy(request: Request):
+    """Proxy Netdata HTML dashboard"""
+    if not netdata_proxy:
+        raise HTTPException(status_code=503, detail="Netdata proxy not initialized")
+
+    return await netdata_proxy.proxy_http(request=request)
+
+
+@app.get("/netdata/{path:path}")
+async def netdata_proxy_all(request: Request, path: str):
+    """Proxy all other Netdata requests (API, static assets, etc.)"""
+    if not netdata_proxy:
+        raise HTTPException(status_code=503, detail="Netdata proxy not initialized")
+
+    return await netdata_proxy.proxy_http(request=request, path=path)
 
 
 # ============================================================================

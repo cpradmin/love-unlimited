@@ -48,6 +48,13 @@ Access terminal sessions directly in your browser via WebSSH integration.
 - **Local Access:** http://localhost:9004/terminal
 - **Remote Access:** https://mcp.aradreamteam.com/terminal (proxied via hub)
 
+## System Monitoring - LIVE 📊
+
+Real-time system monitoring dashboard via Netdata integration.
+
+- **Local Access:** http://localhost:9004/netdata
+- **Remote Access:** https://mcp.aradreamteam.com/netdata (proxied via hub)
+
 WebSSH runs on port 8765 with systemd auto-start. Proxy eliminates custom code for cleaner, battle-tested terminal handling.
 
 ## Full Beast AI Agent - LIVE 🤖
@@ -76,9 +83,11 @@ sudo ./deploy-agent.sh
 **API Endpoints:**
 - `GET /health` - Service health and integration status
 - `GET /preferences/{user_id}` - Load user model preferences
-- `POST /models/search` - Search for models matching criteria
-- `POST /models/validate` - Check if model fits system resources
-- `POST /downloads/queue` - Queue model for download with preferences
+- `POST /search` - Search for models on HuggingFace
+- `POST /resources` - Check if model fits system resources (requires model_size_gb)
+- `POST /queue/add` - Queue model for download (requires model_id, size_gb, priority)
+- `GET /queue/status` - View queued downloads
+- `POST /plan` - AI-powered planning with vLLM reasoning (fallback to manual if offline)
 
 ## LUUC (Love Unlimited Universe Canvas) - LIVE 🎨
 
