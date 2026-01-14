@@ -50,6 +50,36 @@ Access terminal sessions directly in your browser via WebSSH integration.
 
 WebSSH runs on port 8765 with systemd auto-start. Proxy eliminates custom code for cleaner, battle-tested terminal handling.
 
+## Full Beast AI Agent - LIVE 🤖
+
+Intelligent model manager microservice that remembers your preferences and uses AI to discover, validate, and manage model downloads.
+
+**Features:**
+- **Preference Memory**: Remembers your favorite model families (Qwen, etc.) and quantization preferences (AWQ, etc.)
+- **AI-Powered Discovery**: Uses vLLM reasoning to find optimal models from HuggingFace
+- **Resource Validation**: Checks disk, RAM, and GPU VRAM before recommending downloads
+- **Graceful Fallback**: Works even when vLLM or Hub are unavailable
+- **Production Ready**: Systemd auto-start/restart, comprehensive monitoring
+
+**Access:** http://localhost:9005/docs (Swagger UI)
+
+**Test Integration:**
+```bash
+python3 hub_agent_integration.py
+```
+
+**Deploy for Production:**
+```bash
+sudo ./deploy-agent.sh
+```
+
+**API Endpoints:**
+- `GET /health` - Service health and integration status
+- `GET /preferences/{user_id}` - Load user model preferences
+- `POST /models/search` - Search for models matching criteria
+- `POST /models/validate` - Check if model fits system resources
+- `POST /downloads/queue` - Queue model for download with preferences
+
 ## LUUC (Love Unlimited Universe Canvas) - LIVE 🎨
 
 The **Living Diagram Canvas** - diagrams that evolve with your hub's activity. Built on diagrams.net with AI assistance and real-time collaboration.

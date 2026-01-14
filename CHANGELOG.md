@@ -1,5 +1,10 @@
 # Love-Unlimited Changelog
 
+## [0.15.0] - 2026-01-13
+
+### Added
+- **Full Beast AI Agent**: Production deployment of intelligent model manager microservice on port 9005. Features Hub/vLLM/HuggingFace integrations, 17 operational endpoints, systemd auto-start/restart, graceful fallback for offline operation, comprehensive documentation (AGENT_STATUS_REPORT.md, AGENT_DEPLOYMENT_GUIDE.md, FULL_BEAST_GUIDE.md), and automated deployment script. Enables AI-powered model discovery, preference-aware downloads, and resource validation.
+
 ## [0.14.0] - 2026-01-13
 
 ### Added
