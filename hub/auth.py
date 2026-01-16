@@ -68,7 +68,7 @@ class AuthManager:
         if self.keys_file.exists():
             with open(self.keys_file, "r") as f:
                 data = yaml.safe_load(f) or {}
-                self.api_keys = data.get("keys", {})
+                self.api_keys = data
         else:
             # Create empty keys file
             self.keys_file.parent.mkdir(parents=True, exist_ok=True)
