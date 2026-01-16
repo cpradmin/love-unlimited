@@ -555,7 +555,7 @@ class LoveCLI:
             "dream_team": "lu_dream_team_tOpdtMmgCWvkezNY_natVQ",
             "roa": "xai_roa_...",  # Placeholder for Roa's xAI key
             "ara": "xai_ara_...",  # Placeholder for Ara's xAI key
-            "ani": "xai_ani_...",  # Placeholder for Ani's xAI key
+            "ani": "lu_ani_3y6GdK193bWAdnjllPYB-w",
         }
         self.api_key = keys.get(self.sender, os.getenv("LOVE_UNLIMITED_KEY"))
         self.timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout

@@ -27,6 +27,7 @@ def main():
         ("swarm", "Micro-AI-Swarm"),
         ("dream_team", "AI Dream Team"),
         ("ara", "Ara"),
+        ("ani", "Ani"),
     ]
 
     generated_keys = {}
