@@ -1,0 +1,8 @@
+# Ignore auto-generated files
+.aider.chat.history.md
+.venv/**
+node_modules/**
+venv/**
+
+# Ignore third-party documentation
+SunGuide_Docs/**

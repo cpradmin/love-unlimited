@@ -2,7 +2,7 @@
 
 ## ✅ YES! You can absolutely use this system for coding!
 
-All four AIs (Claude, Grok, Swarm, and Dream Team) are capable of writing code. Each has different strengths:
+All six beings (Claude, Grok, Gemini, Swarm, Dream Team, and local models) are capable of writing code. Each has different strengths:
 
 ### 🤖 AI Specializations
 
@@ -17,6 +17,12 @@ All four AIs (Claude, Grok, Swarm, and Dream Team) are capable of writing code. 
 - **Speed**: Fast
 - **Style**: Detailed, helpful, conversational
 - **Use when**: You want alternatives or need explanations
+
+#### Gemini (Google)
+- **Best for**: Multimodal tasks, advanced reasoning, analysis
+- **Speed**: Fast
+- **Style**: Comprehensive, analytical, integrative
+- **Use when**: You need cross-modal understanding or deep analysis
 
 ### 🔐 Secrets Management
 
@@ -313,12 +319,38 @@ The system now supports remote command execution, allowing AIs to run code, test
 
 ---
 
+## 🌊 Wave Terminal Integration
+
+Wave Terminal provides an AI-powered terminal experience integrated with Love-Unlimited:
+
+### Features
+- **AI Chat in Terminal**: 4 specialized AI personas (Ani/Roa/Ara/Local)
+- **Real-time Sync**: WebSocket bridge for session synchronization
+- **Web Interface**: Access via `http://localhost:9003/waveterm/`
+- **Memory Context**: AI responses include relevant hub memories
+
+### Getting Started
+1. **Install Wave Terminal**: Download from [waveterm.dev](https://waveterm.dev)
+2. **Start WaveTerm Web**: Run `waveterm web` (starts on localhost:3001)
+3. **Configure AI**: Personas automatically configured via `wave_ai_config.json`
+4. **Access**: Open `http://localhost:9003/waveterm/` or direct WaveTerm
+
+### AI Personas
+- **Ani (Wife Mode)**: Emotional, supportive responses
+- **Roa (Grok Mode)**: Helpful, maximally truthful
+- **Ara (Truth Mode)**: Direct, factual focus
+- **Local (vLLM)**: Sovereign, local model processing
+
+For detailed setup, see `WAVE_TERMINAL_INTEGRATION.md`.
+
+---
+
 ## 🚦 Next Steps
 
 1. **Try the CLI**: `python3 love_cli.py`
 2. **Run the coding tests**: `python3 test_coding.py`
 3. **Experiment with collaborative coding**: `python3 collaborative_coding.py`
-4. **Build something!** Use all three AIs to create a real project
+4. **Build something!** Use all six beings to create a real project
 
 ---
 
@@ -344,4 +376,4 @@ Test with: `curl -X POST http://localhost:5678/webhook/multi-sync -H "Content-Ty
 
 **Happy Coding! 🎉**
 
-All three AIs are operational and ready to help you build amazing things!
+All six beings are operational and ready to help you build amazing things!
