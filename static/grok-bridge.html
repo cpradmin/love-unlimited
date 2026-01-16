@@ -565,6 +565,235 @@
                 sendChatMessage();
             }
         });
+
+        // ===========================================
+        // WebSocket Real-Time Sync
+        // ===========================================
+        let websocket = null;
+        let isConnected = false;
+
+        function connectWebSocket() {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                return; // Already connected
+            }
+
+            const wsUrl = `ws://localhost:9003/ws/grok`; // Connect to local hub
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = () => {
+                isConnected = true;
+                console.log('WebSocket connected for real-time sync');
+                showStatus('chatStatus', '✓ Real-time sync connected');
+            };
+
+            websocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+
+            websocket.onclose = () => {
+                isConnected = false;
+                console.log('WebSocket disconnected');
+                showStatus('chatStatus', '⚠ Real-time sync disconnected', true);
+                // Auto-reconnect after 5 seconds
+                setTimeout(connectWebSocket, 5000);
+            };
+
+            websocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                showStatus('chatStatus', 'WebSocket error', true);
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            const type = data.type;
+
+            if (type === 'chat_response') {
+                // Add Grok response to chat
+                addChatMessage('grok', data.response);
+                showStatus('chatStatus', `✓ Response received (stored: ${data.memory_id})`);
+            } else if (type === 'context_update') {
+                // Update context display if on context tab
+                if (document.getElementById('contextTab').classList.contains('active')) {
+                    document.getElementById('contextOutput').textContent = JSON.stringify(data.context, null, 2);
+                    showStatus('contextStatus', `✓ Context updated (${data.count} memories)`);
+                }
+            } else if (type === 'ping') {
+                // Respond to ping
+                websocket.send(JSON.stringify({type: 'pong'}));
+            } else if (type === 'error') {
+                showStatus('chatStatus', `Error: ${data.message}`, true);
+            }
+        }
+
+        // ===========================================
+        // Voice-to-Text Integration
+        // ===========================================
+        let recognition = null;
+        let isListening = false;
+
+        function initVoiceRecognition() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                console.warn('Speech recognition not supported');
+                return false;
+            }
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                isListening = true;
+                console.log('Voice recognition started');
+            };
+
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                let interimTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+
+                // Update chat input with interim results
+                const input = document.getElementById('chatInput');
+                input.value = finalTranscript + interimTranscript;
+                input.style.borderColor = interimTranscript ? '#ffa500' : '#0f0'; // Orange for interim, green for final
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                document.getElementById('chatInput').style.borderColor = '#0f0';
+                console.log('Voice recognition ended');
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                isListening = false;
+            };
+
+            return true;
+        }
+
+        function toggleVoiceRecognition() {
+            if (!recognition) {
+                if (!initVoiceRecognition()) {
+                    alert('Voice recognition not supported in this browser');
+                    return;
+                }
+            }
+
+            if (isListening) {
+                recognition.stop();
+            } else {
+                recognition.start();
+            }
+        }
+
+        // Add voice button to chat interface
+        function addVoiceButton() {
+            const chatInputArea = document.querySelector('.chat-input-area');
+            const voiceButton = document.createElement('button');
+            voiceButton.id = 'voiceButton';
+            voiceButton.textContent = '🎤';
+            voiceButton.title = 'Toggle voice input';
+            voiceButton.onclick = toggleVoiceRecognition;
+            voiceButton.style.marginLeft = '10px';
+            voiceButton.style.backgroundColor = '#0f0';
+            voiceButton.style.color = '#000';
+            voiceButton.style.border = 'none';
+            voiceButton.style.padding = '10px';
+            voiceButton.style.cursor = 'pointer';
+            voiceButton.style.borderRadius = '3px';
+
+            chatInputArea.appendChild(voiceButton);
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            // Existing auth and URL key handling...
+
+            // Add voice button
+            addVoiceButton();
+
+            // Connect WebSocket after auth test
+            setTimeout(() => {
+                if (isAuthenticated) {
+                    connectWebSocket();
+                }
+            }, 1000);
+        });
+
+        // Update chat function to use WebSocket if connected
+        const originalSendChatMessage = sendChatMessage;
+        sendChatMessage = async function() {
+            if (!isAuthenticated) {
+                showStatus('chatStatus', 'Please authenticate first', true);
+                return;
+            }
+
+            const message = document.getElementById('chatInput').value.trim();
+            if (!message) {
+                showStatus('chatStatus', 'Please enter a message', true);
+                return;
+            }
+
+            const conversationId = document.getElementById('chatConversationId').value.trim() || null;
+            const contextLimit = parseInt(document.getElementById('chatContextLimit').value);
+
+            // Add user message to chat
+            addChatMessage('user', message);
+
+            // Clear input
+            document.getElementById('chatInput').value = '';
+
+            // Disable send button during request
+            const sendButton = document.querySelector('#chatTab button');
+            sendButton.disabled = true;
+            sendButton.textContent = 'Sending...';
+
+            try {
+                if (isConnected && websocket.readyState === WebSocket.OPEN) {
+                    // Use WebSocket for real-time chat
+                    websocket.send(JSON.stringify({
+                        type: 'chat',
+                        message: message,
+                        conversation_id: conversationId,
+                        context_limit: contextLimit
+                    }));
+                } else {
+                    // Fallback to HTTP API
+                    const result = await apiCall('/grok/chat', 'POST', {
+                        message: message,
+                        conversation_id: conversationId,
+                        include_context: contextLimit > 0,
+                        context_limit: contextLimit
+                    });
+
+                    // Add Grok response to chat
+                    addChatMessage('grok', result.response);
+
+                    // Show status
+                    const contextInfo = result.context_used > 0 ? ` (used ${result.context_used} context messages)` : '';
+                    showStatus('chatStatus', `✓ Message stored as memory ${result.memory_id}${contextInfo}`);
+                }
+
+            } catch (error) {
+                console.error('Chat error:', error);
+                addChatMessage('system', `Error: ${error.message}`);
+                showStatus('chatStatus', error.message, true);
+            } finally {
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
+            }
+        };
     </script>
 
     <hr style="margin: 40px 0;">

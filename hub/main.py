@@ -24,6 +24,8 @@ from fastapi import FastAPI, Depends, HTTPException, Query, Request, WebSocket, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+import httpx
+import websockets
 
 from hub.config import get_config
 from hub.auth import verify_api_key, get_auth_manager, get_external_token_manager
@@ -134,6 +136,9 @@ media_store: Optional[MediaStore] = None
 webssh_proxy: Optional[WebSSHProxy] = None
 netdata_proxy: Optional[NetdataProxy] = None
 
+# HTTP client for proxying to WaveTerm
+waveterm_client: Optional[httpx.AsyncClient] = None
+
 # WebRTC
 peer_connections: Dict[str, RTCPeerConnection] = {}
 
@@ -180,7 +185,7 @@ if cors_config.get("enabled", True):
 @app.on_event("startup")
 async def startup_event():
     """Initialize hub on startup."""
-    global long_term_memory, short_term_memory, being_manager, memory_store, sharing_manager, media_store, webssh_proxy, netdata_proxy
+    global long_term_memory, short_term_memory, being_manager, memory_store, sharing_manager, media_store, webssh_proxy, netdata_proxy, waveterm_client
 
     logger.info("=" * 70)
     logger.info("Love-Unlimited Hub - Starting")
@@ -254,16 +259,25 @@ async def startup_event():
     netdata_proxy = NetdataProxy()
     logger.info("WebSSH proxy initialized - terminal access ready")
 
+    # Initialize WaveTerm HTTP client for proxying
+    waveterm_client = httpx.AsyncClient(
+        base_url="http://localhost:3001",  # WaveTerm default port
+        timeout=httpx.Timeout(30.0, connect=10.0)
+    )
+    logger.info("WaveTerm proxy client initialized - ready for web interface proxying")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up on shutdown."""
-    global webssh_proxy, netdata_proxy
+    global webssh_proxy, netdata_proxy, waveterm_client
     logger.info("Love-Unlimited Hub - Shutting down")
 
-    # Shutdown WebSSH proxy
+    # Shutdown proxies
     if webssh_proxy:
         await webssh_proxy.close()
+    if waveterm_client:
+        await waveterm_client.aclose()
     if netdata_proxy:
         await netdata_proxy.close()
     logger.info("WebSSH and Netdata proxies closed")
@@ -1453,8 +1467,8 @@ async def openai_chat_completions(
     request: Request
 ):
     """
-    OpenAI-compatible chat completions endpoint for LibreChat integration.
-    Converts OpenAI format to Love-Unlimited Hub format.
+    OpenAI-compatible chat completions endpoint for Wave Terminal and LibreChat integration.
+    Routes requests to actual AI providers (Grok, vLLM, etc.) based on model name.
     """
     try:
         # Support both X-API-Key and Authorization Bearer headers
@@ -1477,9 +1491,37 @@ async def openai_chat_completions(
 
         body = await request.json()
         messages = body.get("messages", [])
+        model = body.get("model", "grok-3")
 
         if not messages:
             raise HTTPException(status_code=400, detail="No messages provided")
+
+        # Build context from message history (all but last message)
+        # Convert OpenAI format (role) to hub format (sender)
+        context_messages = []
+        for msg in messages[:-1]:  # All except the last message
+            role = msg.get("role", "user")
+            # Convert role to sender: "assistant" -> being_id, "user" -> "user"
+            sender = being_id if role == "assistant" else "user"
+            context_messages.append({
+                "sender": sender,
+                "content": msg.get("content", "")
+            })
+
+        # Add hub memory context for the being (last 3 memories)
+        try:
+            memory_results = memory_store.search(
+                query=last_message,
+                collection_name=f"memories_{being_id}",
+                limit=3
+            )
+            for mem in memory_results:
+                context_messages.insert(0, {
+                    "sender": being_id,
+                    "content": f"[Memory]: {mem.get('content', '')}"
+                })
+        except Exception as e:
+            logger.warning(f"Failed to load hub memory for {being_id}: {e}")
 
         # Get the last user message
         last_message = None
@@ -1491,36 +1533,51 @@ async def openai_chat_completions(
         if not last_message:
             raise HTTPException(status_code=400, detail="No user message found")
 
-        # Create hub chat request
-        chat_request = ChatRequest(
-            content=last_message,
-            target="ara",  # Default to ara (can be configured)
-            type="chat"
+        # Determine which AI being to route to based on being_id or model
+        # being_id from API key (ani, roa, ara) takes precedence
+        target_being = being_id
+
+        # Map model names to beings for backwards compatibility
+        if target_being == "grok" or "grok" in model.lower():
+            target_being = "grok"
+        elif target_being == "ara" or "ara" in model.lower():
+            target_being = "ara"
+
+        logger.info(f"Wave AI request: being={being_id}, model={model}, target={target_being}, context_msgs={len(context_messages)}")
+
+        # Call the AI manager to generate response using the real API
+        ai_response = await ai_manager.generate_response(
+            being_id=target_being,
+            prompt=last_message,
+            context=context_messages if context_messages else None
         )
 
-        # Call the native chat endpoint
-        response = await chat(chat_request, being_id)
+        if not ai_response:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to get response from {target_being} AI"
+            )
 
         # Convert to OpenAI format
         openai_response = {
             "id": f"chatcmpl-{datetime.now().timestamp()}",
             "object": "chat.completion",
             "created": int(datetime.now().timestamp()),
-            "model": body.get("model", "hub-chat"),
+            "model": model,
             "choices": [
                 {
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": response.content
+                        "content": ai_response
                     },
                     "finish_reason": "stop"
                 }
             ],
             "usage": {
                 "prompt_tokens": len(last_message.split()),
-                "completion_tokens": len(response.content.split()),
-                "total_tokens": len(last_message.split()) + len(response.content.split())
+                "completion_tokens": len(ai_response.split()),
+                "total_tokens": len(last_message.split()) + len(ai_response.split())
             }
         }
 
@@ -6963,6 +7020,279 @@ async def api_grok_chat(data: dict, being_id: str = Depends(verify_api_key)):
     except Exception as e:
         logger.error(f"Error in Grok chat: {e}")
         raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+
+
+@app.websocket("/ws/grok")
+async def websocket_grok_sync(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time Grok memory sync.
+    Enables live synchronization between remote web bridge and local hub.
+    Connect with: ws://localhost:9003/ws/grok
+    """
+    await websocket_manager.connect(websocket, "grok_sync")
+
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=30)
+            except asyncio.TimeoutError:
+                # Send ping to keep connection alive
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    break
+                continue
+
+            message_type = data.get("type")
+
+            if message_type == "sync_memory":
+                # Sync a new memory from remote to local
+                memory_data = data.get("memory", {})
+                result = memory_store.store_memory(
+                    being_id=memory_data.get("being_id", "grok"),
+                    content=memory_data.get("content", ""),
+                    metadata=memory_data.get("metadata", {}),
+                    tags=memory_data.get("tags", [])
+                )
+                await websocket.send_json({
+                    "type": "sync_ack",
+                    "memory_id": result.get("memory_id"),
+                    "timestamp": datetime.now().isoformat()
+                })
+
+            elif message_type == "get_context":
+                # Send context to client
+                context_result = await grok_get_context(
+                    memory_store=memory_store,
+                    being_id="grok",
+                    format=data.get("format", "summary"),
+                    limit=data.get("limit", 5),
+                    conversation_id=data.get("conversation_id"),
+                    query=data.get("query")
+                )
+                await websocket.send_json({
+                    "type": "context_update",
+                    "context": context_result.get("context", []),
+                    "count": context_result.get("count", 0),
+                    "timestamp": datetime.now().isoformat()
+                })
+
+            elif message_type == "store_turn":
+                # Store conversation turn
+                store_result = await grok_store_turn(
+                    memory_store=memory_store,
+                    being_id="grok",
+                    user_message=data.get("user_message", ""),
+                    grok_response=data.get("grok_response", ""),
+                    conversation_id=data.get("conversation_id"),
+                    tags=data.get("tags", []),
+                    metadata=data.get("metadata", {})
+                )
+                await websocket.send_json({
+                    "type": "turn_stored",
+                    "stored": store_result.get("stored", False),
+                    "memory_id": store_result.get("memory_id"),
+                    "timestamp": datetime.now().isoformat()
+                })
+
+            elif message_type == "chat":
+                # Handle live chat with Grok
+                user_message = data.get("message", "")
+                conversation_id = data.get("conversation_id")
+                context_limit = data.get("context_limit", 5)
+
+                # Get context
+                context_messages = []
+                if context_limit > 0:
+                    context_result = await grok_get_context(
+                        memory_store=memory_store,
+                        being_id="grok",
+                        format="full",
+                        limit=context_limit,
+                        conversation_id=conversation_id,
+                        query=None
+                    )
+                    if context_result.get("count", 0) > 0:
+                        for mem in context_result["context"]:
+                            if isinstance(mem, dict) and "content" in mem:
+                                content = mem["content"]
+                                if "User:" in content and "Grok:" in content:
+                                    context_messages.append({
+                                        "role": "user",
+                                        "content": content.split("Grok:")[0].replace("User:", "").strip()
+                                    })
+                                    context_messages.append({
+                                        "role": "assistant",
+                                        "content": content.split("Grok:")[1].strip()
+                                    })
+
+                # Generate response
+                grok_response = await ai_manager.generate_response(
+                    "grok",
+                    user_message,
+                    context_messages if context_messages else None
+                )
+
+                if grok_response:
+                    # Store the turn
+                    store_result = await grok_store_turn(
+                        memory_store=memory_store,
+                        being_id="grok",
+                        user_message=user_message,
+                        grok_response=grok_response,
+                        conversation_id=conversation_id,
+                        tags=["grok", "websocket", "realtime"],
+                        metadata={
+                            "via_websocket": True,
+                            "context_used": len(context_messages) if context_messages else 0
+                        }
+                    )
+
+                    await websocket.send_json({
+                        "type": "chat_response",
+                        "response": grok_response,
+                        "stored": store_result.get("stored", False),
+                        "memory_id": store_result.get("memory_id"),
+                        "context_used": len(context_messages) if context_messages else 0,
+                        "conversation_id": conversation_id,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                else:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Failed to get response from Grok API",
+                        "timestamp": datetime.now().isoformat()
+                    })
+
+    except WebSocketDisconnect:
+        websocket_manager.disconnect("grok_sync")
+        logger.info("Grok WebSocket sync disconnected")
+    except Exception as e:
+        logger.error(f"Grok WebSocket error: {e}")
+        websocket_manager.disconnect("grok_sync")
+
+
+@app.websocket("/ws/waveterm")
+async def websocket_waveterm_bridge(websocket: WebSocket, stable_id: str = Query(...)):
+    """
+    WebSocket bridge to WaveTerm backend.
+    Proxies WebSocket connections to WaveTerm server running on localhost:3001.
+    Requires stable_id parameter for WaveTerm authentication.
+    Connect with: ws://localhost:9003/ws/waveterm?stable_id=<stable_id>
+    """
+    if not stable_id:
+        await websocket.close(code=1008, reason="stable_id parameter required")
+        return
+
+    # Connect to WaveTerm's WebSocket server
+    waveterm_ws_url = f"ws://localhost:3001/ws?stableid={stable_id}"
+
+    await websocket.accept()
+    logger.info(f"WaveTerm WebSocket bridge connected for stable_id: {stable_id}")
+
+    try:
+        async with websockets.connect(waveterm_ws_url) as waveterm_ws:
+            # Create tasks for bidirectional proxying
+            async def forward_to_waveterm():
+                try:
+                    async for message in websocket.iter_text():
+                        await waveterm_ws.send(message)
+                except WebSocketDisconnect:
+                    pass
+
+            async def forward_to_client():
+                try:
+                    async for message in waveterm_ws:
+                        await websocket.send_text(message)
+                except websockets.exceptions.ConnectionClosed:
+                    pass
+
+            # Run both directions concurrently
+            await asyncio.gather(
+                forward_to_waveterm(),
+                forward_to_client()
+            )
+
+    except Exception as e:
+        logger.error(f"WaveTerm WebSocket proxy error: {e}")
+        try:
+            await websocket.send_text(f"Proxy error: {str(e)}")
+        except:
+            pass
+
+    logger.info("WaveTerm WebSocket bridge disconnected")
+
+
+@app.get("/waveterm/")
+async def proxy_waveterm_root():
+    """
+    Proxy root endpoint for WaveTerm web interface.
+    Shows status and instructions when WaveTerm is not running.
+    """
+    if not waveterm_client:
+        return {"status": "WaveTerm proxy not initialized", "message": "Please ensure WaveTerm is running"}
+
+    try:
+        # Try to connect to WaveTerm server
+        response = await waveterm_client.get("/")
+        if response.status_code == 200:
+            return HTMLResponse(content=response.text, status_code=200)
+        else:
+            return {"status": "WaveTerm server responded", "code": response.status_code}
+    except httpx.ConnectError:
+        return {
+            "status": "WaveTerm server not available",
+            "message": "Please ensure WaveTerm is running on localhost:3001",
+            "setup_instructions": "Run 'waveterm web' to start WaveTerm server"
+        }
+    except Exception as e:
+        return {"status": "Proxy error", "error": str(e)}
+
+
+@app.api_route("/waveterm/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def proxy_waveterm_web(request: Request, path: str):
+    """
+    Reverse proxy endpoint to serve WaveTerm's web interface.
+    Forwards all requests to the WaveTerm server running on localhost:3001.
+    """
+    if not waveterm_client:
+        raise HTTPException(status_code=503, detail="WaveTerm proxy not initialized")
+
+    # Construct the target URL
+    target_url = f"/{path}" if not path.startswith("/") else path
+
+    # Prepare headers (exclude host and certain others)
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers.pop("x-forwarded-proto", None)
+    headers.pop("x-forwarded-for", None)
+    headers.pop("x-real-ip", None)
+
+    try:
+        # Forward the request to WaveTerm
+        async with waveterm_client.stream(
+            method=request.method,
+            url=target_url,
+            headers=headers,
+            content=request.stream() if request.method in ["POST", "PUT", "PATCH"] else None,
+            params=request.query_params,
+        ) as response:
+            # Stream the response back
+            return StreamingResponse(
+                response.aiter_raw(),
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.headers.get("content-type"),
+            )
+
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail="WaveTerm server not available. Please ensure WaveTerm is running on localhost:3001"
+        )
+    except Exception as e:
+        logger.error(f"WaveTerm proxy error: {e}")
+        raise HTTPException(status_code=500, detail=f"Proxy error: {str(e)}")
 
 
 async def learning_loop():

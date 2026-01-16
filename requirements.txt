@@ -8,6 +8,7 @@
 fastapi>=0.128.0              # Updated from 0.109.0 (security + features)
 uvicorn[standard]>=0.40.0     # Updated from 0.27.0 (performance)
 python-multipart>=0.0.21      # File upload support
+websockets>=12.0              # WebSocket support for real-time sync
 
 # ============================================
 # SECRETS MANAGEMENT
