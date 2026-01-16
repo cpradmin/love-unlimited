@@ -19,7 +19,7 @@ from fnmatch import fnmatch
 
 # Hub configuration
 HUB_HOST = "localhost"
-HUB_PORT = 9004
+HUB_PORT = 9003
 HUB_API_KEY = "lu_grok_LBRBjrPpvRSyrmDA3PeVZQ"  # Grok's API key
 
 # Load config (similar to love_cli.py)
@@ -29,7 +29,7 @@ from pathlib import Path
 config_path = Path("config.yaml")
 DEFAULT_CONFIG = {
     'hub': {
-        'port': 9004,
+        'port': 9003,
         'host': 'localhost'
     },
     'bash': {
@@ -289,7 +289,7 @@ You are integrated into the Love-Unlimited Hub for memory sovereignty and collab
                 messages.append({"role": "user", "content": user_input})
 
                 response = client.messages.create(
-                    model="claude-3-5-sonnet-20241022",
+                    model="claude-3-haiku-20240307",
                     max_tokens=1024,
                     system=system_prompt,
                     messages=messages,
